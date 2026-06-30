@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Loadout</title>
+
+  <!-- PWA install metadata -->
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#161514" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Loadout" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="wordmark">LOAD<span>OUT</span></h1>
+    <p class="subhead">// one rack, everything on it</p>
+  </header>
+
+  <!-- Signature element: a plate rack used as primary navigation.
+       Each plate = one module, sized/colored by what's on it. -->
+  <nav class="plate-rack">
+    <div class="plate" data-module="today" style="--plate-color: var(--text);">
+      <div class="count">0</div>
+      <div class="label">Today</div>
+    </div>
+    <div class="plate" data-module="training" style="--plate-color: var(--plate-load);">
+      <div class="count">0</div>
+      <div class="label">Training</div>
+    </div>
+    <div class="plate" data-module="admin" style="--plate-color: var(--plate-admin);">
+      <div class="count">0</div>
+      <div class="label">Admin</div>
+    </div>
+    <div class="plate" data-module="tasks" style="--plate-color: var(--plate-task);">
+      <div class="count">0</div>
+      <div class="label">Tasks</div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- TODAY: unified view -->
+    <section id="module-today" class="module">
+      <h2 style="--dot-color: var(--text);">Today</h2>
+
+      <div class="today-section">
+        <h3>Training</h3>
+        <div class="note-box">
+          <span id="today-training-count">0</span> open session item(s).
+          <button class="delete-btn" style="color: var(--plate-load); font-size: 13px;" data-go="training">Go to Training →</button>
+        </div>
+      </div>
+
+      <div class="today-section">
+        <h3>School / Admin</h3>
+        <div class="note-box">
+          <span id="today-admin-count">0</span> open item(s).
+          <button class="delete-btn" style="color: var(--plate-admin); font-size: 13px;" data-go="admin">Go to Admin →</button>
+        </div>
+      </div>
+
+      <div class="today-section">
+        <h3>Tasks</h3>
+        <div class="note-box">
+          <span id="today-tasks-count">0</span> open item(s).
+          <button class="delete-btn" style="color: var(--plate-task); font-size: 13px;" data-go="tasks">Go to Tasks →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRAINING -->
+    <section id="module-training" class="module">
+      <h2 style="--dot-color: var(--plate-load);">
+        Training
+        <button id="unit-toggle" class="unit-toggle-btn" type="button">lb</button>
+      </h2>
+
+      <div class="sheet-sync">
+        <input
+          id="sheet-url-input"
+          type="url"
+          placeholder="Paste 'Publish to web' CSV link from Google Sheets"
+          autocomplete="off"
+        />
+        <button id="sheet-load-tabs-btn" type="button">Load Tabs</button>
+      </div>
+      <div id="sheet-tabs-row" class="sheet-tabs-row"></div>
+      <div class="sheet-sync-bottom">
+        <div id="sheet-sync-status" class="sheet-sync-status"></div>
+        <button id="sheet-sync-btn" type="button" class="sheet-sync-final-btn">Sync</button>
+      </div>
+
+      <div id="lift-grid" class="lift-grid"></div>
+
+      <div class="note-box" style="margin-bottom:16px;">
+        Lift numbers are placeholders for now — next step is wiring in
+        your real program (currently in Excel) so this updates automatically.
+      </div>
+
+      <div id="training-sessions" class="item-list"></div>
+
+      <form id="training-form" class="add-form">
+        <input id="training-input" type="text" placeholder="Add a session or to-do" autocomplete="off" />
+        <button type="submit" style="--accent-color: var(--plate-load);">Add</button>
+      </form>
+    </section>
+
+    <!-- ADMIN -->
+    <section id="module-admin" class="module">
+      <h2 style="--dot-color: var(--plate-admin);">School / Admin</h2>
+
+      <div id="admin-list" class="item-list"></div>
+
+      <form id="admin-form" class="add-form">
+        <input id="admin-input" type="text" placeholder="Add a financial/admin item" autocomplete="off" />
+        <button type="submit" style="--accent-color: var(--plate-admin);">Add</button>
+      </form>
+    </section>
+
+    <!-- TASKS -->
+    <section id="module-tasks" class="module">
+      <h2 style="--dot-color: var(--plate-task);">Tasks</h2>
+
+      <div id="tasks-list" class="item-list"></div>
+
+      <form id="tasks-form" class="add-form">
+        <input id="tasks-input" type="text" placeholder="Add a task" autocomplete="off" />
+        <button type="submit" style="--accent-color: var(--plate-task);">Add</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
