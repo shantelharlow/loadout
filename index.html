@@ -4,22 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Loadout</title>
-
-  <!-- PWA install metadata -->
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#161514" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Loadout" />
-
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-    rel="stylesheet"
-  />
-
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -28,58 +21,61 @@
     <p class="subhead">// one rack, everything on it</p>
   </header>
 
-  <!-- Signature element: a plate rack used as primary navigation.
-       Each plate = one module, sized/colored by what's on it. -->
   <nav class="plate-rack">
     <div class="plate" data-module="today" style="--plate-color: var(--text);">
-      <div class="count">0</div>
-      <div class="label">Today</div>
+      <div class="count">0</div><div class="label">Today</div>
     </div>
     <div class="plate" data-module="training" style="--plate-color: var(--plate-load);">
-      <div class="count">0</div>
-      <div class="label">Training</div>
+      <div class="count">0</div><div class="label">Train</div>
+    </div>
+    <div class="plate" data-module="cal" style="--plate-color: var(--plate-cal);">
+      <div class="count">0</div><div class="label">Cal</div>
     </div>
     <div class="plate" data-module="admin" style="--plate-color: var(--plate-admin);">
-      <div class="count">0</div>
-      <div class="label">Admin</div>
+      <div class="count">0</div><div class="label">Admin</div>
     </div>
     <div class="plate" data-module="tasks" style="--plate-color: var(--plate-task);">
-      <div class="count">0</div>
-      <div class="label">Tasks</div>
+      <div class="count">0</div><div class="label">Tasks</div>
     </div>
   </nav>
 
   <main>
-    <!-- TODAY: unified view -->
+    <!-- ── TODAY ─────────────────────────────────────── -->
     <section id="module-today" class="module">
       <h2 style="--dot-color: var(--text);">Today</h2>
 
       <div class="today-section">
+        <h3>Upcoming</h3>
+        <div id="today-cal-list" class="today-cal-list"></div>
+        <button class="today-go-btn" data-go="cal">Open Calendar →</button>
+      </div>
+
+      <div class="today-section">
         <h3>Training</h3>
         <div class="note-box">
-          <span id="today-training-count">0</span> open session item(s).
-          <button class="delete-btn" style="color: var(--plate-load); font-size: 13px;" data-go="training">Go to Training →</button>
+          <span id="today-training-count">0</span> session item(s) open.
+          <button class="today-go-btn inline" data-go="training">Open →</button>
         </div>
       </div>
 
       <div class="today-section">
         <h3>School / Admin</h3>
         <div class="note-box">
-          <span id="today-admin-count">0</span> open item(s).
-          <button class="delete-btn" style="color: var(--plate-admin); font-size: 13px;" data-go="admin">Go to Admin →</button>
+          <span id="today-admin-count">0</span> item(s) open.
+          <button class="today-go-btn inline" data-go="admin">Open →</button>
         </div>
       </div>
 
       <div class="today-section">
         <h3>Tasks</h3>
         <div class="note-box">
-          <span id="today-tasks-count">0</span> open item(s).
-          <button class="delete-btn" style="color: var(--plate-task); font-size: 13px;" data-go="tasks">Go to Tasks →</button>
+          <span id="today-tasks-count">0</span> item(s) open.
+          <button class="today-go-btn inline" data-go="tasks">Open →</button>
         </div>
       </div>
     </section>
 
-    <!-- TRAINING -->
+    <!-- ── TRAINING ───────────────────────────────────── -->
     <section id="module-training" class="module">
       <h2 style="--dot-color: var(--plate-load);">
         Training
@@ -87,12 +83,9 @@
       </h2>
 
       <div class="sheet-sync">
-        <input
-          id="sheet-url-input"
-          type="url"
-          placeholder="Paste 'Publish to web' CSV link from Google Sheets"
-          autocomplete="off"
-        />
+        <input id="sheet-url-input" type="url"
+               placeholder="Paste 'Publish to web' CSV link from Google Sheets"
+               autocomplete="off" />
         <button id="sheet-load-tabs-btn" type="button">Load Tabs</button>
       </div>
       <div id="sheet-tabs-row" class="sheet-tabs-row"></div>
@@ -101,39 +94,66 @@
         <button id="sheet-sync-btn" type="button" class="sheet-sync-final-btn">Sync</button>
       </div>
 
-      <div id="lift-grid" class="lift-grid"></div>
+      <!-- Day selector — hidden until sheet is synced -->
+      <div id="training-day-nav" class="training-day-nav"></div>
 
-      <div class="note-box" style="margin-bottom:16px;">
-        Lift numbers are placeholders for now — next step is wiring in
-        your real program (currently in Excel) so this updates automatically.
-      </div>
+      <!-- Main day content: day exercises OR manual lift entry -->
+      <div id="training-day-display" class="training-day-display"></div>
 
+      <!-- Session notes / manual to-dos always visible -->
+      <div class="session-notes-header">Session notes</div>
       <div id="training-sessions" class="item-list"></div>
-
-      <form id="training-form" class="add-form">
-        <input id="training-input" type="text" placeholder="Add a session or to-do" autocomplete="off" />
+      <form id="training-form" class="add-form" style="margin-top:8px;">
+        <input id="training-input" type="text" placeholder="Add a note or to-do" autocomplete="off" />
         <button type="submit" style="--accent-color: var(--plate-load);">Add</button>
       </form>
     </section>
 
-    <!-- ADMIN -->
+    <!-- ── CALENDAR ───────────────────────────────────── -->
+    <section id="module-cal" class="module">
+      <div class="cal-header-row">
+        <button id="cal-prev" class="cal-nav-btn" type="button">‹</button>
+        <h2 id="cal-title" style="--dot-color: var(--plate-cal); margin:0; flex:1; text-align:center;"></h2>
+        <button id="cal-next" class="cal-nav-btn" type="button">›</button>
+      </div>
+
+      <div class="cal-view-toggle">
+        <button id="cal-week-btn" class="cal-view-btn is-active" type="button">Week</button>
+        <button id="cal-month-btn" class="cal-view-btn" type="button">Month</button>
+      </div>
+
+      <div id="cal-grid"></div>
+
+      <!-- Add event form -->
+      <div class="cal-add-section">
+        <div class="session-notes-header">Add event or deadline</div>
+        <form id="cal-form" class="cal-add-form">
+          <input id="cal-title-input"  type="text"   placeholder="Title"   autocomplete="off" required />
+          <input id="cal-date-input"   type="date"   required />
+          <input id="cal-time-input"   type="time" />
+          <select id="cal-type-input">
+            <option value="event">Event</option>
+            <option value="deadline">Deadline</option>
+          </select>
+          <button type="submit">Add</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ── ADMIN ──────────────────────────────────────── -->
     <section id="module-admin" class="module">
       <h2 style="--dot-color: var(--plate-admin);">School / Admin</h2>
-
       <div id="admin-list" class="item-list"></div>
-
       <form id="admin-form" class="add-form">
         <input id="admin-input" type="text" placeholder="Add a financial/admin item" autocomplete="off" />
         <button type="submit" style="--accent-color: var(--plate-admin);">Add</button>
       </form>
     </section>
 
-    <!-- TASKS -->
+    <!-- ── TASKS ──────────────────────────────────────── -->
     <section id="module-tasks" class="module">
       <h2 style="--dot-color: var(--plate-task);">Tasks</h2>
-
       <div id="tasks-list" class="item-list"></div>
-
       <form id="tasks-form" class="add-form">
         <input id="tasks-input" type="text" placeholder="Add a task" autocomplete="off" />
         <button type="submit" style="--accent-color: var(--plate-task);">Add</button>

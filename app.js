@@ -27,10 +27,13 @@ function loadState() {
       unit: "lb",
       barWeight: 45,
       sheetUrl: "",
-      sheetTabs: [],   // [{name: "Week 1", gid: "0"}, ...] discovered from pubhtml
-      activeGid: "",   // which tab is currently selected for sync
+      sheetTabs: [],
+      activeGid: "",
+      parsedDays: [],   // parsed from sheet: [{num, exercises, abOptionA, abOptionB}]
+      activeDay: 1,     // which day tab is selected
+      abChoices: {},    // { "1": "A", "2": "B", ... } user's A/B pick per day
       sessions: [
-        { id: cryptoId(), text: "Import your program from Excel", done: false },
+        { id: cryptoId(), text: "Import your program from Google Sheets", done: false },
       ],
     },
     admin: [
@@ -40,6 +43,9 @@ function loadState() {
     tasks: [
       { id: cryptoId(), text: "Add your first task", done: false },
     ],
+    events: [],          // { id, title, date (YYYY-MM-DD), time, type: "event"|"deadline" }
+    calView: "week",     // "week" | "month"
+    calAnchor: "",       // YYYY-MM-DD — the date the calendar is anchored to (defaults to today)
   };
 }
 
@@ -62,9 +68,142 @@ if (state.training.lifts.some((l) => l.value !== undefined)) {
   state.training.sheetTabs = state.training.sheetTabs || [];
   state.training.activeGid = state.training.activeGid || "";
 }
+if (!state.training.parsedDays) state.training.parsedDays = [];
+if (!state.training.activeDay)  state.training.activeDay  = 1;
+if (!state.training.abChoices)  state.training.abChoices  = {};
+if (!state.events)    state.events    = [];
+if (!state.calView)   state.calView   = "week";
+if (!state.calAnchor) state.calAnchor = "";
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+// ---------- LIFT VARIANT DETECTION ----------
+// Maps a lift name (from the sheet) to Squat / Bench / Deadlift.
+// Warmup sets are generated only for these variants.
+const LIFT_VARIANTS = {
+  Squat:    ["squat","squats","tempo squat","high bar squat","box squat","pause squat","safety bar","ssb"],
+  Bench:    ["bench"],
+  Deadlift: ["deadlift","rdl","romanian","stiff leg","sumo dead","trap bar"],
+};
+
+function detectLiftKey(name) {
+  const n = name.toLowerCase();
+  for (const [key, variants] of Object.entries(LIFT_VARIANTS)) {
+    if (variants.some((v) => n.includes(v))) return key;
+  }
+  return null;
+}
+
+// ---------- SHEET DAY PARSER ----------
+// Reads the CSV rows (array of arrays) and builds a structured
+// array of training days, each with main lifts, direct accessories,
+// and A/B variation options scraped from the right-side columns.
+//
+// Column layout of this program's sheet (0-indexed):
+//   0: row number or "Day N" header
+//   1: exercise name
+//   2: % or RPE
+//   3: reps
+//   4: sets
+//   5: weight (pre-calculated)
+//   6: notes
+//   7: (empty spacer)
+//   8: A/B label on right side ("A", "B", or "DAY N")
+//   9: A/B exercise text on right side
+
+function parseSheetDays(rows) {
+  const days = [];
+  let currentDay = null;
+
+  // — LEFT-SIDE PASS: build day blocks with exercises —
+  rows.forEach((row) => {
+    const col0 = (row[0] || "").trim();
+    const col1 = (row[1] || "").trim();
+    const col2 = (row[2] || "").trim();
+    const col3 = (row[3] || "").trim();  // reps
+    const col4 = (row[4] || "").trim();  // sets
+    const col5 = (row[5] || "").trim();  // weight
+    const col6 = (row[6] || "").trim();  // notes
+
+    // "Day 1", "Day 2", etc. — start a new day block
+    if (/^day\s*\d+/i.test(col0)) {
+      const num = parseInt(col0.match(/\d+/)[0]);
+      currentDay = { num, exercises: [], abOptionA: [], abOptionB: [] };
+      days.push(currentDay);
+      return;
+    }
+
+    if (!currentDay || !col1) return;
+
+    // "CHOOSE VARIATION..." rows mark an A/B slot in the exercise order
+    if (/choose variation/i.test(col1)) {
+      currentDay.exercises.push({ type: "ab_slot" });
+      return;
+    }
+
+    const weight = Number(col5);
+    const hasPct = hasPercent(col2);
+    const liftKey = detectLiftKey(col1);
+
+    if (hasPct || (liftKey && weight > 0)) {
+      // Main lift row (has % or is a known lift with weight)
+      currentDay.exercises.push({
+        type: "main",
+        name: col1,
+        pct: col2,
+        reps: col3,
+        sets: col4,
+        weight: weight || null,
+        notes: col6,
+        liftKey,
+      });
+    } else if (col1 && (col3 || col4)) {
+      // Direct accessory (has reps or sets but no %)
+      currentDay.exercises.push({
+        type: "accessory",
+        name: col1,
+        reps: col3,
+        sets: col4,
+        notes: col6,
+      });
+    }
+  });
+
+  // — RIGHT-SIDE PASS: collect A/B options per day —
+  // The right side uses col 8 for labels ("A", "B", or "DAY N")
+  // and col 9 for the exercise text ("3A) DB RDLs 3x10 RPE 8").
+  let rightDay  = null;
+  let abSection = null;
+
+  rows.forEach((row) => {
+    const col8 = (row[8] || "").trim();
+    const col9 = (row[9] || "").trim();
+
+    // "DAY 1", "DAY 2" etc. on the right side
+    if (/^day\s*\d+$/i.test(col8)) {
+      const num = parseInt(col8.match(/\d+/)[0]);
+      rightDay  = days.find((d) => d.num === num) || null;
+      abSection = null;
+      return;
+    }
+
+    if (!rightDay) return;
+
+    if (col8 === "A") abSection = "A";
+    if (col8 === "B") abSection = "B";
+
+    // Exercise lines: "3A) DB or Barbell RDLs 3x10 RPE 8"
+    if (col9 && /^\d+[ABab]\)/.test(col9)) {
+      // Strip the numbering prefix ("3A) ") so we get the clean name
+      const clean = col9.replace(/^\d+[ABab]\)\s*/, "").trim();
+      if (abSection === "A") rightDay.abOptionA.push(clean);
+      else if (abSection === "B") rightDay.abOptionB.push(clean);
+    }
+  });
+
+  return days;
 }
 
 // ---------- WARMUP CALCULATOR ----------
@@ -291,6 +430,11 @@ async function syncFromSheet() {
     const rows = parseCsv(text);
     let updated = 0;
 
+    // Parse full day structure for the training view
+    state.training.parsedDays = parseSheetDays(rows);
+
+    // Also pull working weights into the lifts[] reference array
+    // (used as fallback when a day doesn't have a weight listed)
     state.training.lifts.forEach((lift) => {
       const aliases = LIFT_ALIASES[lift.name] || [lift.name.toLowerCase()];
       const matches = rows.filter((row) => {
@@ -328,7 +472,7 @@ async function syncFromSheet() {
 // (today / training / admin / tasks). Switching just toggles
 // which module has the .is-active class.
 
-const MODULES = ["today", "training", "admin", "tasks"];
+const MODULES = ["today", "training", "cal", "admin", "tasks"];
 
 function setActiveModule(key) {
   state.activeModule = key;
@@ -346,6 +490,7 @@ function render() {
   renderTraining();
   renderAdmin();
   renderTasks();
+  renderCal();
 
   MODULES.forEach((key) => {
     document
@@ -355,11 +500,19 @@ function render() {
 }
 
 function renderPlateRack() {
+  // Count upcoming events in the next 7 days for the cal plate
+  const todayStr = dateStr(new Date());
+  const in7 = dateStr(addDays(new Date(), 7));
+  const upcomingCount = state.events.filter(
+    (e) => e.date >= todayStr && e.date <= in7
+  ).length;
+
   const counts = {
     today: openCount(state.admin) + openCount(state.tasks) + openCount(state.training.sessions),
     training: openCount(state.training.sessions),
     admin: openCount(state.admin),
     tasks: openCount(state.tasks),
+    cal: upcomingCount,
   };
 
   MODULES.forEach((key) => {
@@ -378,12 +531,30 @@ function renderToday() {
     openCount(state.training.sessions);
   document.getElementById("today-admin-count").textContent = openCount(state.admin);
   document.getElementById("today-tasks-count").textContent = openCount(state.tasks);
+
+  // Show today's + tomorrow's events in the Today view
+  const todayStr  = dateStr(new Date());
+  const tomorrowStr = dateStr(addDays(new Date(), 1));
+  const upcoming = state.events
+    .filter((e) => e.date === todayStr || e.date === tomorrowStr)
+    .sort((a, b) => (a.date + (a.time||"") > b.date + (b.time||"") ? 1 : -1));
+
+  const calToday = document.getElementById("today-cal-list");
+  if (upcoming.length === 0) {
+    calToday.innerHTML = `<div class="today-cal-empty">Nothing today or tomorrow</div>`;
+  } else {
+    calToday.innerHTML = upcoming.map((e) => `
+      <div class="today-cal-item ${e.type}">
+        <span class="today-cal-dot"></span>
+        <span class="today-cal-label">${e.date === todayStr ? "Today" : "Tomorrow"}${e.time ? " " + fmtTime(e.time) : ""}</span>
+        <span class="today-cal-title">${escapeHtml(e.title)}</span>
+      </div>`).join("");
+  }
 }
 
 function renderTraining() {
-  const grid = document.getElementById("lift-grid");
   const unit = state.training.unit;
-  const bar = state.training.barWeight;
+  const bar  = state.training.barWeight;
   document.getElementById("unit-toggle").textContent = unit;
   renderTabSelector();
   const urlInput = document.getElementById("sheet-url-input");
@@ -391,59 +562,149 @@ function renderTraining() {
     urlInput.value = state.training.sheetUrl || "";
   }
 
-  grid.innerHTML = state.training.lifts
-    .map((l, i) => {
-      const warmups = generateWarmups(l.workingWeight, unit, bar);
-      const warmupHtml = warmups.length
-        ? warmups
-            .map(
-              (s) => `
-              <div class="warmup-row${s.label === "Work set" ? " is-work" : ""}">
-                <span class="warmup-label">${s.label}</span>
-                <span class="warmup-weight">${s.weight}${unit}</span>
-                <span class="warmup-reps">${s.reps ? `× ${s.reps}` : ""}</span>
-              </div>`
-            )
-            .join("")
-        : `<div class="empty-state" style="padding:10px 0;">Enter a working weight to generate warmups</div>`;
+  const days = state.training.parsedDays;
+  const dayContainer = document.getElementById("training-day-display");
 
-      return `
+  // — No sheet synced yet: show manual lift entry —
+  if (!days || days.length === 0) {
+    dayContainer.innerHTML = renderManualLifts(unit, bar);
+    wireManualLiftInputs();
+    return;
+  }
+
+  // — Day selector tabs —
+  const dayNavEl = document.getElementById("training-day-nav");
+  dayNavEl.innerHTML = days.map((d) => `
+    <button class="day-tab-btn ${d.num === state.training.activeDay ? "is-active" : ""}"
+            data-day="${d.num}" type="button">Day ${d.num}</button>`
+  ).join("");
+  dayNavEl.querySelectorAll(".day-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.training.activeDay = Number(btn.dataset.day);
+      saveState();
+      renderTraining();
+    });
+  });
+
+  const day = days.find((d) => d.num === state.training.activeDay) || days[0];
+  if (!day) { dayContainer.innerHTML = ""; return; }
+
+  const abChoice = state.training.abChoices[day.num] || null;
+
+  let html = "";
+
+  day.exercises.forEach((ex) => {
+    if (ex.type === "main") {
+      // Resolve warmup weight: prefer the day's own weight, fall back to lifts[] reference
+      const refLift = ex.liftKey
+        ? state.training.lifts.find((l) => l.name === ex.liftKey)
+        : null;
+      const warmupWeight = ex.weight || (refLift ? Number(refLift.workingWeight) : 0);
+      const warmups = warmupWeight ? generateWarmups(warmupWeight, unit, bar) : [];
+
+      html += `
+        <div class="day-lift-card">
+          <div class="day-lift-header">
+            <div class="day-lift-name">${escapeHtml(ex.name)}</div>
+            <div class="day-lift-prescription">${ex.sets ? ex.sets + " × " : ""}${ex.reps || ""}${ex.pct ? " @ " + ex.pct : ""}${ex.weight ? " · " + ex.weight + unit : ""}</div>
+          </div>
+          ${ex.notes ? `<div class="day-lift-notes">${escapeHtml(ex.notes)}</div>` : ""}
+          ${warmups.length ? `
+            <div class="warmup-list">
+              ${warmups.map((s) => `
+                <div class="warmup-row${s.label === "Work set" ? " is-work" : ""}">
+                  <span class="warmup-label">${s.label}</span>
+                  <span class="warmup-weight">${s.weight}${unit}</span>
+                  <span class="warmup-reps">${s.reps ? "× " + s.reps : ""}</span>
+                </div>`).join("")}
+            </div>` : `<div class="day-no-warmup">Add a working weight after syncing to generate warmups</div>`}
+        </div>`;
+
+    } else if (ex.type === "accessory") {
+      html += `
+        <div class="day-accessory-row">
+          <div class="day-acc-name">${escapeHtml(ex.name)}</div>
+          <div class="day-acc-detail">${ex.sets ? ex.sets + " × " : ""}${ex.reps || ""}</div>
+          ${ex.notes ? `<div class="day-acc-notes">${escapeHtml(ex.notes)}</div>` : ""}
+        </div>`;
+
+    } else if (ex.type === "ab_slot") {
+      const hasOptions = day.abOptionA.length > 0 || day.abOptionB.length > 0;
+      html += `
+        <div class="ab-block">
+          <div class="ab-toggle-row">
+            <span class="ab-label">Variation</span>
+            ${hasOptions ? `
+              <button class="ab-btn ${abChoice === "A" ? "is-active" : ""}" data-ab="A" type="button">Option A</button>
+              <button class="ab-btn ${abChoice === "B" ? "is-active" : ""}" data-ab="B" type="button">Option B</button>
+            ` : `<span class="day-acc-notes">Pick A or B from your sheet</span>`}
+          </div>
+          ${abChoice === "A" && day.abOptionA.length ? `
+            <div class="ab-exercises">
+              ${day.abOptionA.map((e) => `<div class="ab-exercise-row"><span class="ab-dot a"></span>${escapeHtml(e)}</div>`).join("")}
+            </div>` : ""}
+          ${abChoice === "B" && day.abOptionB.length ? `
+            <div class="ab-exercises">
+              ${day.abOptionB.map((e) => `<div class="ab-exercise-row"><span class="ab-dot b"></span>${escapeHtml(e)}</div>`).join("")}
+            </div>` : ""}
+          ${!abChoice && hasOptions ? `<div class="ab-prompt">Tap A or B to see your options</div>` : ""}
+        </div>`;
+    }
+  });
+
+  dayContainer.innerHTML = html || `<div class="empty-state">No exercises found for Day ${day.num}</div>`;
+
+  // Wire A/B toggle buttons
+  dayContainer.querySelectorAll(".ab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cur = state.training.abChoices[day.num];
+      state.training.abChoices[day.num] = cur === btn.dataset.ab ? null : btn.dataset.ab;
+      saveState();
+      renderTraining();
+    });
+  });
+
+  renderList("training-sessions", state.training.sessions,
+    (item) => toggleItem(state.training.sessions, item.id),
+    (id)  => removeItem(state.training.sessions, id));
+}
+
+function renderManualLifts(unit, bar) {
+  return state.training.lifts.map((l, i) => {
+    const warmups = generateWarmups(l.workingWeight, unit, bar);
+    const warmupHtml = warmups.length
+      ? warmups.map((s) => `
+          <div class="warmup-row${s.label === "Work set" ? " is-work" : ""}">
+            <span class="warmup-label">${s.label}</span>
+            <span class="warmup-weight">${s.weight}${unit}</span>
+            <span class="warmup-reps">${s.reps ? "× " + s.reps : ""}</span>
+          </div>`).join("")
+      : `<div class="empty-state" style="padding:10px 0;">Enter weight to generate warmups</div>`;
+    return `
       <div class="lift-card">
         <div class="lift-name">${l.name}</div>
         <div class="lift-input-row">
-          <input
-            type="number"
-            inputmode="decimal"
-            class="lift-weight-input"
-            data-lift-index="${i}"
-            placeholder="Working wt"
-            value="${l.workingWeight}"
-          />
+          <input type="number" inputmode="decimal" class="lift-weight-input"
+                 data-lift-index="${i}" placeholder="Working wt" value="${l.workingWeight}" />
           <span class="unit-tag">${unit}</span>
         </div>
         <div class="warmup-list">${warmupHtml}</div>
       </div>`;
-    })
-    .join("");
+  }).join("");
+}
 
+function wireManualLiftInputs() {
+  const grid = document.getElementById("training-day-display");
   grid.querySelectorAll(".lift-weight-input").forEach((input) => {
     input.addEventListener("input", (e) => {
       const idx = Number(e.target.dataset.liftIndex);
       state.training.lifts[idx].workingWeight = e.target.value;
       saveState();
       renderTraining();
-      // re-focus + restore cursor since we just re-rendered this input
       const fresh = grid.querySelector(`.lift-weight-input[data-lift-index="${idx}"]`);
-      if (fresh) {
-        fresh.focus();
-        fresh.setSelectionRange(fresh.value.length, fresh.value.length);
-      }
+      if (fresh) { fresh.focus(); fresh.setSelectionRange(fresh.value.length, fresh.value.length); }
     });
   });
-
-  renderList("training-sessions", state.training.sessions, (item) =>
-    toggleItem(state.training.sessions, item.id)
-  , (id) => removeItem(state.training.sessions, id));
 }
 
 function renderAdmin() {
@@ -456,6 +717,173 @@ function renderTasks() {
   renderList("tasks-list", state.tasks, (item) => toggleItem(state.tasks, item.id), (id) =>
     removeItem(state.tasks, id)
   );
+}
+
+// ---------- CALENDAR ----------
+// Date utilities — all work with plain JS Date objects and
+// YYYY-MM-DD strings (safe for localStorage, no timezone drift).
+
+const DAY_NAMES  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTH_NAMES = ["January","February","March","April","May","June",
+                     "July","August","September","October","November","December"];
+
+function dateStr(d) {
+  // Returns YYYY-MM-DD in local time (not UTC, avoids day-off-by-one)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseDate(str) {
+  // Parse YYYY-MM-DD as local midnight (not UTC)
+  const [y, m, d] = str.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+function startOfWeek(d) {
+  // Returns the Sunday of the week containing d
+  const r = new Date(d);
+  r.setDate(r.getDate() - r.getDay());
+  return r;
+}
+
+function fmtTime(t) {
+  // "14:30" → "2:30 PM"
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2,"0")} ${ampm}`;
+}
+
+function eventsOnDate(str) {
+  return state.events.filter((e) => e.date === str)
+    .sort((a, b) => (a.time || "") > (b.time || "") ? 1 : -1);
+}
+
+function renderCal() {
+  const anchor = state.calAnchor ? parseDate(state.calAnchor) : new Date();
+
+  // View toggle buttons
+  document.getElementById("cal-week-btn").classList.toggle("is-active", state.calView === "week");
+  document.getElementById("cal-month-btn").classList.toggle("is-active", state.calView === "month");
+
+  if (state.calView === "week") renderWeekView(anchor);
+  else renderMonthView(anchor);
+}
+
+function renderWeekView(anchor) {
+  const grid = document.getElementById("cal-grid");
+  const title = document.getElementById("cal-title");
+  const weekStart = startOfWeek(anchor);
+  const weekEnd   = addDays(weekStart, 6);
+  const todayStr  = dateStr(new Date());
+
+  title.textContent = weekStart.getMonth() === weekEnd.getMonth()
+    ? `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getFullYear()}`
+    : `${MONTH_NAMES[weekStart.getMonth()].slice(0,3)} – ${MONTH_NAMES[weekEnd.getMonth()].slice(0,3)} ${weekEnd.getFullYear()}`;
+
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  grid.innerHTML = `
+    <div class="week-grid">
+      ${days.map((d) => {
+        const ds = dateStr(d);
+        const evs = eventsOnDate(ds);
+        const isToday = ds === todayStr;
+        return `
+          <div class="week-col ${isToday ? "is-today" : ""}">
+            <div class="week-day-name">${DAY_NAMES[d.getDay()]}</div>
+            <div class="week-day-num ${isToday ? "is-today-num" : ""}">${d.getDate()}</div>
+            <div class="week-events">
+              ${evs.length
+                ? evs.map((e) => `
+                    <div class="cal-event-chip ${e.type}" data-id="${e.id}">
+                      ${e.time ? `<span class="chip-time">${fmtTime(e.time)}</span>` : ""}
+                      <span class="chip-title">${escapeHtml(e.title)}</span>
+                      <button class="chip-del" data-id="${e.id}">×</button>
+                    </div>`).join("")
+                : ""}
+            </div>
+          </div>`;
+      }).join("")}
+    </div>`;
+
+  grid.querySelectorAll(".chip-del").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteEvent(btn.dataset.id);
+    });
+  });
+}
+
+function renderMonthView(anchor) {
+  const grid = document.getElementById("cal-grid");
+  const title = document.getElementById("cal-title");
+  const todayStr = dateStr(new Date());
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+
+  title.textContent = `${MONTH_NAMES[month]} ${year}`;
+
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  let cells = "";
+  // Day-name headers
+  DAY_NAMES.forEach((n) => { cells += `<div class="month-header">${n}</div>`; });
+  // Leading empty cells
+  for (let i = 0; i < firstDay; i++) cells += `<div class="month-cell is-empty"></div>`;
+  // Day cells
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const evs = eventsOnDate(ds);
+    const isToday = ds === todayStr;
+    cells += `
+      <div class="month-cell ${isToday ? "is-today" : ""}">
+        <div class="month-day-num ${isToday ? "is-today-num" : ""}">${d}</div>
+        <div class="month-dots">
+          ${evs.map((e) => `<span class="month-dot ${e.type}" title="${escapeHtml(e.title)}"></span>`).join("")}
+        </div>
+      </div>`;
+  }
+
+  grid.innerHTML = `<div class="month-grid">${cells}</div>`;
+}
+
+// Navigate the calendar anchor (prev/next week or month)
+function calNav(dir) {
+  const anchor = state.calAnchor ? parseDate(state.calAnchor) : new Date();
+  const delta  = state.calView === "week" ? dir * 7 : dir * 32;
+  const next   = addDays(anchor, delta);
+  // For month nav, snap to 1st of the new month
+  if (state.calView === "month") {
+    state.calAnchor = dateStr(new Date(next.getFullYear(), next.getMonth(), 1));
+  } else {
+    state.calAnchor = dateStr(next);
+  }
+  saveState();
+  renderCal();
+}
+
+function deleteEvent(id) {
+  state.events = state.events.filter((e) => e.id !== id);
+  saveState();
+  render();
+}
+
+function addEvent(title, date, time, type) {
+  if (!title.trim() || !date) return;
+  state.events.push({ id: cryptoId(), title: title.trim(), date, time, type });
+  state.events.sort((a, b) => (a.date + (a.time||"")) > (b.date + (b.time||"")) ? 1 : -1);
+  saveState();
+  render();
 }
 
 // Generic renderer reused by training/admin/tasks lists, since
@@ -538,8 +966,31 @@ document.getElementById("tasks-form").addEventListener("submit", (e) => {
   input.value = "";
 });
 
-document.querySelectorAll("[data-go]").forEach((btn) => {
-  btn.addEventListener("click", () => setActiveModule(btn.dataset.go));
+// Use event delegation for all data-go buttons (today + training notes area)
+document.querySelector("main").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-go]");
+  if (btn) setActiveModule(btn.dataset.go);
+});
+
+// Calendar nav + view toggle + add-event form
+document.getElementById("cal-prev").addEventListener("click", () => calNav(-1));
+document.getElementById("cal-next").addEventListener("click", () => calNav(1));
+document.getElementById("cal-week-btn").addEventListener("click", () => {
+  state.calView = "week"; saveState(); renderCal();
+});
+document.getElementById("cal-month-btn").addEventListener("click", () => {
+  state.calView = "month"; saveState(); renderCal();
+});
+
+document.getElementById("cal-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const title = document.getElementById("cal-title-input").value;
+  const date  = document.getElementById("cal-date-input").value;
+  const time  = document.getElementById("cal-time-input").value;
+  const type  = document.getElementById("cal-type-input").value;
+  addEvent(title, date, time, type);
+  document.getElementById("cal-title-input").value = "";
+  document.getElementById("cal-time-input").value  = "";
 });
 
 document.getElementById("sheet-load-tabs-btn").addEventListener("click", () => {

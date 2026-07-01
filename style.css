@@ -468,3 +468,259 @@ main {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── Calendar colour token ─────────────────────────── */
+:root { --plate-cal: #7B68EE; }
+
+/* ── Today module ───────────────────────────────────── */
+.today-cal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-height: 20px;
+}
+.today-cal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.today-cal-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+}
+.today-cal-item.event    .today-cal-dot { background: var(--plate-cal); }
+.today-cal-item.deadline .today-cal-dot { background: var(--plate-load); }
+.today-cal-label { font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.today-cal-title { flex: 1; }
+.today-cal-empty { color: var(--muted); font-size: 13px; font-family: var(--font-mono); padding: 8px 0; }
+.today-go-btn {
+  background: none; border: none; color: var(--muted); font-size: 12px;
+  font-family: var(--font-mono); cursor: pointer; padding: 0; margin-top: 4px; display: block;
+}
+.today-go-btn.inline { display: inline; margin-top: 0; margin-left: 8px; }
+
+/* ── Training: day nav ──────────────────────────────── */
+.training-day-nav {
+  display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.day-tab-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: 20px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.day-tab-btn.is-active {
+  background: var(--plate-load);
+  border-color: var(--plate-load);
+  color: #161514;
+  font-weight: 600;
+}
+
+/* ── Training: day display ──────────────────────────── */
+.training-day-display { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+
+.day-lift-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--plate-load);
+  border-radius: 10px;
+  padding: 14px;
+}
+.day-lift-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.day-lift-name { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--text); flex: 1; }
+.day-lift-prescription { font-family: var(--font-mono); font-size: 12px; color: var(--plate-load); white-space: nowrap; }
+.day-lift-notes { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.4; }
+.day-no-warmup { font-family: var(--font-mono); font-size: 11px; color: var(--muted); padding: 6px 0; }
+
+.day-accessory-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.day-acc-name { flex: 1; font-size: 14px; }
+.day-acc-detail { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.day-acc-notes { font-size: 11px; color: var(--muted); width: 100%; margin-top: 2px; }
+
+/* ── A/B variation block ────────────────────────────── */
+.ab-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.ab-toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ab-label { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; color: var(--muted); flex: 1; }
+.ab-btn {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 600;
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.ab-btn.is-active {
+  background: var(--plate-task);
+  border-color: var(--plate-task);
+  color: #161514;
+}
+.ab-exercises { display: flex; flex-direction: column; gap: 6px; }
+.ab-exercise-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.ab-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+}
+.ab-dot.a { background: var(--plate-task); }
+.ab-dot.b { background: var(--plate-admin); }
+.ab-prompt { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+.session-notes-header {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* ── Calendar ───────────────────────────────────────── */
+.cal-header-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+}
+.cal-nav-btn {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); font-size: 20px; border-radius: 8px;
+  padding: 4px 12px; cursor: pointer; line-height: 1;
+}
+.cal-view-toggle {
+  display: flex; gap: 6px; margin-bottom: 14px;
+}
+.cal-view-btn {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--muted); font-family: var(--font-mono); font-size: 12px;
+  border-radius: 20px; padding: 5px 14px; cursor: pointer;
+}
+.cal-view-btn.is-active {
+  background: var(--plate-cal); border-color: var(--plate-cal);
+  color: #fff; font-weight: 600;
+}
+
+/* Week view */
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 20px;
+}
+.week-col {
+  display: flex; flex-direction: column; align-items: center;
+  min-height: 80px;
+}
+.week-day-name {
+  font-family: var(--font-mono); font-size: 10px;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+}
+.week-day-num {
+  font-family: var(--font-mono); font-size: 14px;
+  color: var(--text); width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; margin-bottom: 4px;
+}
+.week-day-num.is-today-num { background: var(--plate-cal); color: #fff; font-weight: 600; }
+.week-events { width: 100%; display: flex; flex-direction: column; gap: 3px; }
+
+.cal-event-chip {
+  border-radius: 4px; padding: 2px 4px;
+  font-family: var(--font-mono); font-size: 9px;
+  display: flex; align-items: center; gap: 3px;
+  cursor: default; overflow: hidden;
+}
+.cal-event-chip.event    { background: rgba(123,104,238,0.18); color: var(--plate-cal); }
+.cal-event-chip.deadline { background: rgba(196,69,54,0.18);  color: var(--plate-load); }
+.chip-time { opacity: 0.7; white-space: nowrap; flex: 0 0 auto; }
+.chip-title { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chip-del {
+  background: none; border: none; cursor: pointer;
+  color: inherit; opacity: 0.5; font-size: 12px; padding: 0; line-height: 1; flex: 0 0 auto;
+}
+.chip-del:hover { opacity: 1; }
+
+/* Month view */
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 20px;
+}
+.month-header {
+  font-family: var(--font-mono); font-size: 10px;
+  text-transform: uppercase; color: var(--muted);
+  text-align: center; padding: 4px 0 6px;
+}
+.month-cell {
+  background: var(--surface); border-radius: 6px;
+  padding: 4px; min-height: 44px;
+  border: 1px solid transparent;
+}
+.month-cell.is-empty { background: none; }
+.month-cell.is-today { border-color: var(--plate-cal); }
+.month-day-num {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted); margin-bottom: 3px;
+}
+.month-day-num.is-today-num { color: var(--plate-cal); font-weight: 600; }
+.month-dots { display: flex; flex-wrap: wrap; gap: 2px; }
+.month-dot {
+  width: 5px; height: 5px; border-radius: 50;
+}
+.month-dot.event    { background: var(--plate-cal); }
+.month-dot.deadline { background: var(--plate-load); }
+
+/* Calendar add form */
+.cal-add-section { margin-top: 4px; }
+.cal-add-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.cal-add-form input, .cal-add-form select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+.cal-add-form input[type="text"] { grid-column: 1 / -1; }
+.cal-add-form select { color: var(--text); background: var(--surface); }
+.cal-add-form select option { background: var(--bg); }
+.cal-add-form button {
+  grid-column: 1 / -1;
+  background: var(--plate-cal); color: #fff;
+  border: none; border-radius: 8px;
+  padding: 12px; font-family: var(--font-display);
+  text-transform: uppercase; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+
+/* Lift cards (manual entry mode) */
+.lift-grid-manual { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
