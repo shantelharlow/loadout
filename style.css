@@ -724,3 +724,155 @@ main {
 
 /* Lift cards (manual entry mode) */
 .lift-grid-manual { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+
+/* ── Finance colour token ───────────────────────────── */
+:root { --plate-finance: #2D9B6F; }
+
+/* ── Lock screen ────────────────────────────────────── */
+.finance-lock-screen {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 48px 20px; text-align: center; gap: 12px;
+}
+.finance-lock-icon { font-size: 48px; margin-bottom: 8px; }
+.finance-lock-title { font-family: var(--font-display); font-size: 22px; text-transform: uppercase; margin: 0; }
+.finance-lock-sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; max-width: 280px; }
+.finance-auth-btn {
+  margin-top: 8px;
+  background: var(--plate-finance); color: #fff;
+  border: none; border-radius: 12px;
+  padding: 14px 32px;
+  font-family: var(--font-display); text-transform: uppercase;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.finance-auth-status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-height: 16px; }
+
+/* ── Finance header row ─────────────────────────────── */
+.finance-header-row {
+  display: flex; align-items: center; margin-bottom: 16px;
+}
+.finance-lock-btn {
+  margin-left: auto; background: none; border: 1px solid var(--border);
+  color: var(--muted); font-family: var(--font-mono); font-size: 11px;
+  border-radius: 6px; padding: 4px 10px; cursor: pointer;
+}
+
+/* ── Account card rail ──────────────────────────────── */
+.finance-account-rail {
+  display: flex; gap: 10px; overflow-x: auto;
+  padding-bottom: 4px; margin-bottom: 20px;
+}
+.finance-account-card {
+  flex: 0 0 160px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px; cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+.finance-account-card.is-active { border-color: var(--plate-finance); }
+.finance-account-card.credit.is-active { border-color: var(--plate-load); }
+.fac-name { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.fac-balance { font-family: var(--font-display); font-size: 22px; }
+.fac-owed { font-family: var(--font-mono); font-size: 11px; color: var(--plate-load); margin-top: 4px; }
+.fac-due  { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+.util-bar-bg { background: var(--border); border-radius: 4px; height: 4px; margin-top: 8px; overflow: hidden; }
+.util-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+.util-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-top: 3px; }
+
+.finance-add-account-card {
+  flex: 0 0 120px; background: none;
+  border: 1px dashed var(--border); border-radius: 12px;
+  color: var(--muted); font-family: var(--font-mono); font-size: 12px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+
+/* ── Credit meta row ────────────────────────────────── */
+.credit-meta-row {
+  display: grid; grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 8px; align-items: end; margin-bottom: 16px;
+}
+.credit-meta-field { display: flex; flex-direction: column; gap: 4px; }
+.credit-meta-field label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; color: var(--muted); }
+.credit-meta-edit { display: flex; align-items: center; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; }
+.credit-meta-edit span { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.credit-inline-input {
+  background: none; border: none; color: var(--text);
+  font-family: var(--font-mono); font-size: 13px;
+  padding: 8px 0; width: 100%; outline: none;
+}
+input[type="date"].credit-inline-input {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px;
+}
+.credit-save-btn {
+  background: var(--plate-finance); color: #fff;
+  border: none; border-radius: 8px;
+  padding: 8px 14px; font-family: var(--font-display);
+  text-transform: uppercase; font-size: 11px; cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ── Transaction list ───────────────────────────────── */
+.tx-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.tx-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+}
+.tx-left { flex: 1; min-width: 0; }
+.tx-desc { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-meta { font-family: var(--font-mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
+.tx-amount { font-family: var(--font-mono); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.tx-row.is-debit  .tx-amount { color: var(--plate-load); }
+.tx-row.is-credit .tx-amount { color: var(--plate-finance); }
+.tx-del {
+  background: none; border: none; color: var(--muted);
+  font-size: 18px; cursor: pointer; padding: 2px 4px; line-height: 1;
+}
+
+/* ── Add transaction form ───────────────────────────── */
+.account-detail { margin-top: 4px; }
+.tx-add-form {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.tx-add-form input, .tx-add-form select {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font-family: var(--font-body); font-size: 14px;
+}
+.tx-add-form input[type="text"]:first-child { grid-column: 1 / -1; }
+.tx-add-form select { background: var(--surface); color: var(--text); }
+.tx-add-form select option { background: var(--bg); }
+.tx-add-form button {
+  grid-column: 1 / -1; background: var(--plate-finance); color: #fff;
+  border: none; border-radius: 8px; padding: 12px;
+  font-family: var(--font-display); text-transform: uppercase;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+
+/* ── Add account modal ──────────────────────────────── */
+.finance-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100; padding: 20px;
+}
+.finance-modal-box {
+  background: var(--surface-raised); border-radius: 16px;
+  padding: 24px; width: 100%; max-width: 360px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.finance-modal-box h3 {
+  font-family: var(--font-display); text-transform: uppercase;
+  font-size: 18px; margin: 0 0 4px;
+}
+.finance-modal-box input,
+.finance-modal-box select {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+  color: var(--text); font-family: var(--font-body); font-size: 14px;
+}
+.finance-modal-btns { display: flex; gap: 8px; margin-top: 4px; }
+.finance-modal-btns button {
+  flex: 1; padding: 12px; border-radius: 8px; border: none; cursor: pointer;
+  font-family: var(--font-display); text-transform: uppercase; font-size: 13px;
+}
+#modal-cancel { background: var(--surface); color: var(--muted); }
+#modal-save   { background: var(--plate-finance); color: #fff; font-weight: 600; }

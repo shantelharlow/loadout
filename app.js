@@ -29,11 +29,12 @@ function loadState() {
       sheetUrl: "",
       sheetTabs: [],
       activeGid: "",
+      tabsDiscovered: false,  // true only when tab IDs were genuinely found
       parsedDays: [],   // parsed from sheet: [{num, exercises, abOptionA, abOptionB}]
       activeDay: 1,     // which day tab is selected
       abChoices: {},    // { "1": "A", "2": "B", ... } user's A/B pick per day
       sessions: [
-        { id: cryptoId(), text: "Import your program from Google Sheets", done: false },
+        { id: cryptoId(), text: "Add a session note", done: false },
       ],
     },
     admin: [
@@ -43,9 +44,20 @@ function loadState() {
     tasks: [
       { id: cryptoId(), text: "Add your first task", done: false },
     ],
-    events: [],          // { id, title, date (YYYY-MM-DD), time, type: "event"|"deadline" }
-    calView: "week",     // "week" | "month"
-    calAnchor: "",       // YYYY-MM-DD — the date the calendar is anchored to (defaults to today)
+    events: [],
+    calView: "week",
+    calAnchor: "",
+    finance: {
+      // credentialId: stored WebAuthn credential (array of numbers).
+      // null = biometrics not yet registered.
+      credentialId: null,
+      accounts: [],
+      // accounts shape:
+      //   checking: { id, type:"checking", name, balance, transactions:[] }
+      //   credit:   { id, type:"credit",  name, balance, limit, owed, dueDate, minPayment, transactions:[] }
+      // transactions: { id, date, description, amount (neg=expense/charge, pos=deposit/payment), category }
+      activeAccountId: null,
+    },
   };
 }
 
@@ -74,6 +86,12 @@ if (!state.training.abChoices)  state.training.abChoices  = {};
 if (!state.events)    state.events    = [];
 if (!state.calView)   state.calView   = "week";
 if (!state.calAnchor) state.calAnchor = "";
+if (!state.finance)   state.finance   = { credentialId: null, accounts: [], activeAccountId: null };
+if (!state.finance.activeAccountId) state.finance.activeAccountId = null;
+
+// financeUnlocked lives ONLY in memory — never saved to localStorage.
+// This means the finance section re-locks every time you close the app.
+let financeUnlocked = false;
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -355,6 +373,7 @@ async function discoverTabs(rawUrl) {
     state.training.sheetUrl  = url;
     state.training.sheetTabs = tabs;
     state.training.activeGid = tabs[0].gid;
+    state.training.tabsDiscovered = true;
     saveState();
     renderTabSelector();
     statusEl.textContent = `Found ${tabs.length} tab(s) — pick a week, then hit Sync.`;
@@ -379,6 +398,7 @@ function showManualWeekFallback(url) {
   state.training.sheetUrl  = url;
   state.training.sheetTabs = weeks.map((name, i) => ({ name, gid: String(i) }));
   state.training.activeGid = "0";
+  state.training.tabsDiscovered = false;
   saveState();
   renderTabSelector();
 }
@@ -411,7 +431,7 @@ function renderTabSelector() {
 
 async function syncFromSheet() {
   const statusEl = document.getElementById("sheet-sync-status");
-  const { sheetUrl, activeGid } = state.training;
+  const { sheetUrl, activeGid, tabsDiscovered } = state.training;
 
   if (!sheetUrl) {
     statusEl.textContent = "Paste your sheet URL and load tabs first.";
@@ -419,7 +439,10 @@ async function syncFromSheet() {
     return;
   }
 
-  const csvUrl = toCsvUrl(sheetUrl, activeGid);
+  // Only use a gid-specific URL if we actually discovered real tab IDs.
+  // If tab discovery fell back to fake IDs (0,1,2…), use the original
+  // URL as-is — it already points to the correct sheet.
+  const csvUrl = tabsDiscovered ? toCsvUrl(sheetUrl, activeGid) : sheetUrl;
   statusEl.textContent = "Syncing…";
   statusEl.className = "sheet-sync-status";
 
@@ -472,7 +495,7 @@ async function syncFromSheet() {
 // (today / training / admin / tasks). Switching just toggles
 // which module has the .is-active class.
 
-const MODULES = ["today", "training", "cal", "admin", "tasks"];
+const MODULES = ["today", "training", "cal", "finance", "admin", "tasks"];
 
 function setActiveModule(key) {
   state.activeModule = key;
@@ -491,6 +514,8 @@ function render() {
   renderAdmin();
   renderTasks();
   renderCal();
+  // Finance renders lazily (only when active) to avoid biometric prompt on load
+  if (state.activeModule === "finance") renderFinance();
 
   MODULES.forEach((key) => {
     document
@@ -507,12 +532,17 @@ function renderPlateRack() {
     (e) => e.date >= todayStr && e.date <= in7
   ).length;
 
+  const totalOwed = state.finance.accounts
+    .filter((a) => a.type === "credit" && (a.owed || 0) > 0)
+    .length;
+
   const counts = {
     today: openCount(state.admin) + openCount(state.tasks) + openCount(state.training.sessions),
     training: openCount(state.training.sessions),
+    cal: upcomingCount,
+    finance: totalOwed,
     admin: openCount(state.admin),
     tasks: openCount(state.tasks),
-    cal: upcomingCount,
   };
 
   MODULES.forEach((key) => {
@@ -617,7 +647,7 @@ function renderTraining() {
                   <span class="warmup-weight">${s.weight}${unit}</span>
                   <span class="warmup-reps">${s.reps ? "× " + s.reps : ""}</span>
                 </div>`).join("")}
-            </div>` : `<div class="day-no-warmup">Add a working weight after syncing to generate warmups</div>`}
+            </div>` : `<div class="day-no-warmup">Enter a working weight to generate warmups</div>`}
         </div>`;
 
     } else if (ex.type === "accessory") {
@@ -685,7 +715,7 @@ function renderManualLifts(unit, bar) {
         <div class="lift-name">${l.name}</div>
         <div class="lift-input-row">
           <input type="number" inputmode="decimal" class="lift-weight-input"
-                 data-lift-index="${i}" placeholder="Working wt" value="${l.workingWeight}" />
+                 data-lift-index="${i}" placeholder="e.g. 225" step="any" value="${l.workingWeight}" />
           <span class="unit-tag">${unit}</span>
         </div>
         <div class="warmup-list">${warmupHtml}</div>
@@ -717,6 +747,378 @@ function renderTasks() {
   renderList("tasks-list", state.tasks, (item) => toggleItem(state.tasks, item.id), (id) =>
     removeItem(state.tasks, id)
   );
+}
+
+// ---------- FACE ID / WEBAUTHN ----------
+// WebAuthn lets the browser call the device's biometric hardware
+// (Face ID on iPhone, Touch ID on Mac). It works on HTTPS only —
+// so it works on your deployed GitHub Pages site but NOT on a
+// local file:// URL. In local dev the buttons will show a fallback.
+//
+// IMPORTANT: This is UI-level locking. The data still lives in
+// localStorage in plain text — anyone with DevTools can read it.
+// For personal use on your own device this is fine; for anything
+// truly sensitive you'd need server-side encryption.
+
+function webAuthnAvailable() {
+  return window.PublicKeyCredential &&
+    typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function";
+}
+
+async function platformAuthAvailable() {
+  if (!webAuthnAvailable()) return false;
+  return window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+}
+
+// Step 1 — called the first time user sets up Face ID.
+async function registerFaceId() {
+  const statusEl = document.getElementById("finance-auth-status");
+  try {
+    const available = await platformAuthAvailable();
+    if (!available) {
+      statusEl.textContent = "⚠️ Face ID not available — deploy to HTTPS first (GitHub Pages).";
+      return;
+    }
+    statusEl.textContent = "Follow the Face ID prompt…";
+
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const userId    = crypto.getRandomValues(new Uint8Array(16));
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: "Loadout" },
+        user: { id: userId, name: "loadout-user", displayName: "You" },
+        pubKeyCredParams: [
+          { alg: -7,  type: "public-key" },   // ES256
+          { alg: -257, type: "public-key" },  // RS256 fallback
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+          residentKey: "preferred",
+        },
+        timeout: 60000,
+      },
+    });
+
+    // Store the raw credential ID as an array of numbers (JSON-safe)
+    state.finance.credentialId = Array.from(new Uint8Array(credential.rawId));
+    saveState();
+    financeUnlocked = true;
+    renderFinance();
+  } catch (err) {
+    statusEl.textContent = err.name === "NotAllowedError"
+      ? "Face ID cancelled — try again."
+      : `Setup failed: ${err.message}`;
+  }
+}
+
+// Step 2 — called every time user opens the finance tab after setup.
+async function authenticateFaceId() {
+  const statusEl = document.getElementById("finance-auth-status");
+  try {
+    const available = await platformAuthAvailable();
+    if (!available) {
+      // Localhost / no HTTPS fallback: just unlock for dev purposes
+      statusEl.textContent = "⚠️ Face ID only works on HTTPS. Unlocking for local dev.";
+      financeUnlocked = true;
+      renderFinance();
+      return;
+    }
+    statusEl.textContent = "Follow the Face ID prompt…";
+
+    const challenge    = crypto.getRandomValues(new Uint8Array(32));
+    const credentialId = new Uint8Array(state.finance.credentialId);
+
+    await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        allowCredentials: [{ type: "public-key", id: credentialId, transports: ["internal"] }],
+        userVerification: "required",
+        timeout: 60000,
+      },
+    });
+
+    financeUnlocked = true;
+    renderFinance();
+  } catch (err) {
+    statusEl.textContent = err.name === "NotAllowedError"
+      ? "Face ID cancelled — try again."
+      : `Auth failed: ${err.message}`;
+  }
+}
+
+// ---------- FINANCE RENDER ----------
+
+function renderFinance() {
+  const el = document.getElementById("module-finance");
+
+  // — Locked: not set up yet —
+  if (!state.finance.credentialId) {
+    el.innerHTML = `
+      <h2 style="--dot-color: var(--plate-finance);">Finances</h2>
+      <div class="finance-lock-screen">
+        <div class="finance-lock-icon">🔒</div>
+        <p class="finance-lock-title">Protect with Face ID</p>
+        <p class="finance-lock-sub">Your financial data never leaves your device.<br>
+           Face ID locks this section every time you close the app.</p>
+        <button id="finance-setup-btn" class="finance-auth-btn" type="button">Set Up Face ID</button>
+        <div id="finance-auth-status" class="finance-auth-status"></div>
+      </div>`;
+    document.getElementById("finance-setup-btn")
+      .addEventListener("click", registerFaceId);
+    return;
+  }
+
+  // — Locked: set up but not authenticated this session —
+  if (!financeUnlocked) {
+    el.innerHTML = `
+      <h2 style="--dot-color: var(--plate-finance);">Finances</h2>
+      <div class="finance-lock-screen">
+        <div class="finance-lock-icon">󰒃</div>
+        <p class="finance-lock-title">Locked</p>
+        <button id="finance-unlock-btn" class="finance-auth-btn" type="button">
+          Unlock with Face ID
+        </button>
+        <div id="finance-auth-status" class="finance-auth-status"></div>
+      </div>`;
+    document.getElementById("finance-unlock-btn")
+      .addEventListener("click", authenticateFaceId);
+    return;
+  }
+
+  // — Unlocked —
+  const accounts = state.finance.accounts;
+  const activeId  = state.finance.activeAccountId || accounts[0]?.id || null;
+  const active    = accounts.find((a) => a.id === activeId) || null;
+
+  let html = `<div class="finance-header-row">
+    <h2 style="--dot-color: var(--plate-finance); margin:0;">Finances</h2>
+    <button id="finance-lock-btn" class="finance-lock-btn" type="button">🔒 Lock</button>
+  </div>`;
+
+  // Account cards row
+  html += `<div class="finance-account-rail">`;
+  accounts.forEach((acc) => {
+    const isActive = acc.id === activeId;
+    const balance  = computeBalance(acc);
+    html += `
+      <div class="finance-account-card ${isActive ? "is-active" : ""} ${acc.type}"
+           data-account-id="${acc.id}">
+        <div class="fac-name">${escapeHtml(acc.name)}</div>
+        <div class="fac-balance">${formatMoney(balance)}</div>
+        ${acc.type === "credit" ? `
+          <div class="fac-owed">Owed: ${formatMoney(acc.owed || 0)}</div>
+          ${acc.dueDate ? `<div class="fac-due">Due ${acc.dueDate}</div>` : ""}
+          ${acc.limit ? utilBar(balance, acc.limit) : ""}
+        ` : ""}
+      </div>`;
+  });
+  html += `<button id="finance-add-account-btn" class="finance-add-account-card" type="button">+ Add Account</button>`;
+  html += `</div>`;
+
+  // Active account detail
+  if (active) {
+    html += renderAccountDetail(active);
+  } else if (accounts.length === 0) {
+    html += `<div class="empty-state" style="margin-top:24px;">Add an account above to get started</div>`;
+  }
+
+  el.innerHTML = html;
+
+  // Wire account card clicks
+  el.querySelectorAll(".finance-account-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      state.finance.activeAccountId = card.dataset.accountId;
+      saveState();
+      renderFinance();
+    });
+  });
+
+  // Add account
+  el.querySelector("#finance-add-account-btn")
+    .addEventListener("click", () => showAddAccountModal());
+
+  // Lock button
+  el.querySelector("#finance-lock-btn").addEventListener("click", () => {
+    financeUnlocked = false;
+    renderFinance();
+  });
+
+  // Transaction form
+  const txForm = el.querySelector("#tx-form");
+  if (txForm) {
+    txForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const desc   = el.querySelector("#tx-desc").value.trim();
+      const amount = parseFloat(el.querySelector("#tx-amount").value);
+      const date   = el.querySelector("#tx-date").value;
+      const cat    = el.querySelector("#tx-cat").value.trim();
+      const dir    = el.querySelector("#tx-dir").value; // "out" | "in"
+      if (!desc || isNaN(amount) || !date) return;
+      const signed = dir === "out" ? -Math.abs(amount) : Math.abs(amount);
+      active.transactions.unshift({ id: cryptoId(), date, description: desc, amount: signed, category: cat });
+      if (active.type === "checking") {
+        active.balance = (active.balance || 0) + signed;
+      }
+      saveState();
+      renderFinance();
+    });
+  }
+
+  // Delete transaction buttons
+  el.querySelectorAll(".tx-del").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const txId = btn.dataset.txId;
+      active.transactions = active.transactions.filter((t) => t.id !== txId);
+      saveState();
+      renderFinance();
+    });
+  });
+
+  // Credit card meta (owed / due / min payment) save
+  const saveMeta = el.querySelector("#save-credit-meta");
+  if (saveMeta && active) {
+    saveMeta.addEventListener("click", () => {
+      active.owed       = parseFloat(el.querySelector("#edit-owed").value) || 0;
+      active.dueDate    = el.querySelector("#edit-due").value || "";
+      active.minPayment = parseFloat(el.querySelector("#edit-min").value) || 0;
+      saveState();
+      renderFinance();
+    });
+  }
+}
+
+function renderAccountDetail(acc) {
+  const txs = (acc.transactions || []).slice(0, 40); // show last 40
+
+  // Credit card: editable owed / due date fields
+  const creditMeta = acc.type === "credit" ? `
+    <div class="credit-meta-row">
+      <div class="credit-meta-field">
+        <label>Amount owed</label>
+        <div class="credit-meta-edit">
+          <span>$</span>
+          <input type="number" class="credit-inline-input" id="edit-owed"
+                 value="${acc.owed || ""}" placeholder="0.00" step="0.01" />
+        </div>
+      </div>
+      <div class="credit-meta-field">
+        <label>Due date</label>
+        <input type="date" class="credit-inline-input" id="edit-due"
+               value="${acc.dueDate || ""}" />
+      </div>
+      <div class="credit-meta-field">
+        <label>Min payment</label>
+        <div class="credit-meta-edit">
+          <span>$</span>
+          <input type="number" class="credit-inline-input" id="edit-min"
+                 value="${acc.minPayment || ""}" placeholder="0.00" step="0.01" />
+        </div>
+      </div>
+      <button class="credit-save-btn" id="save-credit-meta" type="button">Save</button>
+    </div>` : "";
+
+  const txRows = txs.length ? txs.map((t) => `
+    <div class="tx-row ${t.amount < 0 ? "is-debit" : "is-credit"}">
+      <div class="tx-left">
+        <div class="tx-desc">${escapeHtml(t.description)}</div>
+        <div class="tx-meta">${t.date}${t.category ? " · " + escapeHtml(t.category) : ""}</div>
+      </div>
+      <div class="tx-amount">${t.amount < 0 ? "−" : "+"}${formatMoney(Math.abs(t.amount))}</div>
+      <button class="tx-del" data-tx-id="${t.id}" type="button">×</button>
+    </div>`).join("") :
+    `<div class="empty-state">No transactions yet</div>`;
+
+  const dirLabel = acc.type === "credit"
+    ? `<option value="out">Charge</option><option value="in">Payment</option>`
+    : `<option value="out">Withdrawal / expense</option><option value="in">Deposit</option>`;
+
+  return `
+    <div class="account-detail">
+      ${creditMeta}
+      <div class="tx-list">${txRows}</div>
+      <form id="tx-form" class="tx-add-form">
+        <input id="tx-desc"   type="text"   placeholder="Description" required autocomplete="off" />
+        <input id="tx-amount" type="number" placeholder="Amount"  step="0.01" min="0" required />
+        <input id="tx-date"   type="date"   value="${dateStr(new Date())}" required />
+        <input id="tx-cat"    type="text"   placeholder="Category (optional)" autocomplete="off" />
+        <select id="tx-dir">${dirLabel}</select>
+        <button type="submit">Add</button>
+      </form>
+    </div>`;
+}
+
+function computeBalance(acc) {
+  if (acc.type === "checking") return acc.balance || 0;
+  // For credit: balance = sum of all charges (negative txs)
+  const spent = (acc.transactions || []).reduce((sum, t) => sum + (t.amount < 0 ? Math.abs(t.amount) : 0), 0);
+  return spent;
+}
+
+function formatMoney(n) {
+  return "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function utilBar(spent, limit) {
+  const pct = Math.min(100, (spent / limit) * 100);
+  const color = pct > 80 ? "var(--plate-load)" : pct > 50 ? "var(--plate-task)" : "var(--plate-finance)";
+  return `<div class="util-bar-bg"><div class="util-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+          <div class="util-label">${Math.round(pct)}% of $${limit.toLocaleString()} limit</div>`;
+}
+
+function showAddAccountModal() {
+  // Simple inline modal appended to the finance module
+  const el = document.getElementById("module-finance");
+  const existing = el.querySelector(".finance-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.className = "finance-modal";
+  modal.innerHTML = `
+    <div class="finance-modal-box">
+      <h3>Add Account</h3>
+      <select id="new-acc-type">
+        <option value="checking">Checking</option>
+        <option value="credit">Credit Card</option>
+      </select>
+      <input id="new-acc-name"    type="text"   placeholder="Account name (e.g. Chase Checking)" />
+      <input id="new-acc-balance" type="number" placeholder="Current balance" step="0.01" />
+      <div id="new-acc-credit-fields" style="display:none; flex-direction:column; gap:8px;">
+        <input id="new-acc-limit" type="number" placeholder="Credit limit" step="1" />
+        <input id="new-acc-due"   type="date"   />
+      </div>
+      <div class="finance-modal-btns">
+        <button id="modal-cancel" type="button">Cancel</button>
+        <button id="modal-save"   type="button">Add</button>
+      </div>
+    </div>`;
+
+  el.appendChild(modal);
+
+  modal.querySelector("#new-acc-type").addEventListener("change", (e) => {
+    modal.querySelector("#new-acc-credit-fields").style.display =
+      e.target.value === "credit" ? "flex" : "none";
+  });
+
+  modal.querySelector("#modal-cancel").addEventListener("click", () => modal.remove());
+
+  modal.querySelector("#modal-save").addEventListener("click", () => {
+    const type    = modal.querySelector("#new-acc-type").value;
+    const name    = modal.querySelector("#new-acc-name").value.trim();
+    const balance = parseFloat(modal.querySelector("#new-acc-balance").value) || 0;
+    const limit   = parseFloat(modal.querySelector("#new-acc-limit")?.value) || 0;
+    const dueDate = modal.querySelector("#new-acc-due")?.value || "";
+    if (!name) return;
+    const newAcc = { id: cryptoId(), type, name, balance, transactions: [],
+                     ...(type === "credit" ? { owed: 0, limit, dueDate, minPayment: 0 } : {}) };
+    state.finance.accounts.push(newAcc);
+    state.finance.activeAccountId = newAcc.id;
+    saveState();
+    modal.remove();
+    renderFinance();
+  });
 }
 
 // ---------- CALENDAR ----------
@@ -1022,12 +1424,39 @@ document.getElementById("unit-toggle").addEventListener("click", () => {
   render();
 });
 
-// ---------- 6. PWA: register service worker ----------
+// ---------- PWA: service worker + auto-update ----------
+// When a new version is deployed to GitHub Pages, the service worker
+// detects it and silently reloads the app in the background.
+// Next time you open Loadout on your phone it's already up to date —
+// no reinstalling needed.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((err) => {
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js");
+
+      reg.addEventListener("updatefound", () => {
+        const newWorker = reg.installing;
+        newWorker.addEventListener("statechange", () => {
+          if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+            // New version is ready — tell it to take over immediately
+            newWorker.postMessage("skipWaiting");
+          }
+        });
+      });
+
+      // When the new worker takes control, reload the page once
+      // so the user gets the fresh version without doing anything
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
+
+    } catch (err) {
       console.log("Service worker registration failed:", err);
-    });
+    }
   });
 }
 
