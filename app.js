@@ -753,7 +753,7 @@ function renderManualLifts(unit, bar) {
       <div class="lift-card">
         <div class="lift-name">${l.name}</div>
         <div class="lift-input-row">
-          <input type="number" inputmode="decimal" class="lift-weight-input"
+          <blur type="text" inputmode="decimal" class="lift-weight-input"
                  data-lift-index="${i}" placeholder="e.g. 225" step="any" value="${l.workingWeight}" />
           <span class="unit-tag">${unit}</span>
         </div>
