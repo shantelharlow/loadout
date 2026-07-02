@@ -129,7 +129,12 @@
 
       <!-- Add event form -->
       <div class="cal-add-section">
-        <div class="session-notes-header">Add event or deadline</div>
+        <div class="cal-toolbar">
+          <div class="session-notes-header" style="margin:0;">Add event or deadline</div>
+          <button id="cal-export-all-btn" class="cal-export-all-btn" type="button">
+            Export All → Apple Calendar
+          </button>
+        </div>
         <form id="cal-form" class="cal-add-form">
           <input id="cal-title-input"  type="text"   placeholder="Title"   autocomplete="off" required />
           <input id="cal-date-input"   type="date"   required />
@@ -145,7 +150,8 @@
 
     <!-- ── FINANCE ────────────────────────────────────── -->
     <section id="module-finance" class="module">
-      <!-- Rendered entirely by renderFinance() based on lock state -->
+      <!-- Main finance UI rendered by renderFinance() -->
+      <!-- Bank CSV import — always visible when unlocked, handled by JS -->
     </section>
 
     <!-- ── ADMIN ──────────────────────────────────────── -->

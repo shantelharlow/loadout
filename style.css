@@ -876,3 +876,60 @@ input[type="date"].credit-inline-input {
 }
 #modal-cancel { background: var(--surface); color: var(--muted); }
 #modal-save   { background: var(--plate-finance); color: #fff; font-weight: 600; }
+
+/* ── Calendar toolbar + export button ──────────────── */
+.cal-toolbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.cal-export-all-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--plate-cal);
+  color: var(--plate-cal);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip-ics {
+  background: none; border: none;
+  color: inherit; opacity: 0.5;
+  font-size: 13px; cursor: pointer;
+  padding: 0; line-height: 1; flex: 0 0 auto;
+}
+.chip-ics:hover { opacity: 1; }
+
+/* ── Bank CSV import zone ───────────────────────────── */
+.bank-import-zone {
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.bank-import-zone.is-dragging {
+  border-color: var(--plate-finance);
+  background: rgba(45,155,111,0.08);
+}
+.import-icon { font-size: 20px; flex: 0 0 auto; }
+.import-label { font-size: 13px; flex: 1; }
+.import-link {
+  color: var(--plate-finance);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.import-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Accessory row layout fix ───────────────────────── */
+.day-acc-left { flex: 1; min-width: 0; }

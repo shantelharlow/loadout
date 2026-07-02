@@ -107,9 +107,40 @@ const LIFT_VARIANTS = {
 };
 
 function detectLiftKey(name) {
+  // Names with parenthetical modifiers like "Bench (Moderate/Narrower)"
+  // are bench variations treated as accessories, not the main competition lift.
+  if (/\(/.test(name)) return null;
   const n = name.toLowerCase();
   for (const [key, variants] of Object.entries(LIFT_VARIANTS)) {
     if (variants.some((v) => n.includes(v))) return key;
+  }
+  return null;
+}
+
+// Scan a header row to find which column index holds what data.
+// The "Day N" row in this sheet doubles as the column header row,
+// so we can detect column positions dynamically instead of hard-coding them.
+function detectColMap(row) {
+  const lower = row.map((c) => (c || "").toLowerCase().trim());
+  const idx = (...terms) => lower.findIndex((c) => terms.some((t) => c.includes(t)));
+
+  const weightIdx = idx("weight", "wt", "load");
+  const pctIdx    = idx("% / rpe", "%/rpe", "% rpe", "intensity");
+  const pctIdx2   = pctIdx >= 0 ? pctIdx : idx("%", "rpe");
+  const repsIdx   = idx("reps");
+  const setsIdx   = idx("sets");
+  const notesIdx  = idx("notes");
+
+  // Only update the map if we found the weight column (most reliable signal)
+  if (weightIdx > 0) {
+    return {
+      name:   1,
+      pct:    pctIdx2   >= 0 ? pctIdx2   : 2,
+      reps:   repsIdx   >= 0 ? repsIdx   : 3,
+      sets:   setsIdx   >= 0 ? setsIdx   : 4,
+      weight: weightIdx,
+      notes:  notesIdx  >= 0 ? notesIdx  : weightIdx + 1,
+    };
   }
   return null;
 }
@@ -134,26 +165,36 @@ function detectLiftKey(name) {
 function parseSheetDays(rows) {
   const days = [];
   let currentDay = null;
+  // Default column map — updated dynamically when a Day header row is found
+  let colMap = { name: 1, pct: 2, reps: 3, sets: 4, weight: 5, notes: 6 };
 
   // — LEFT-SIDE PASS: build day blocks with exercises —
   rows.forEach((row) => {
     const col0 = (row[0] || "").trim();
-    const col1 = (row[1] || "").trim();
-    const col2 = (row[2] || "").trim();
-    const col3 = (row[3] || "").trim();  // reps
-    const col4 = (row[4] || "").trim();  // sets
-    const col5 = (row[5] || "").trim();  // weight
-    const col6 = (row[6] || "").trim();  // notes
 
-    // "Day 1", "Day 2", etc. — start a new day block
+    // "Day 1", "Day 2", etc. — start a new day block.
+    // This row also doubles as the column header row in the sheet,
+    // so we detect column positions from it.
     if (/^day\s*\d+/i.test(col0)) {
+      const detected = detectColMap(row);
+      if (detected) colMap = detected;
+
       const num = parseInt(col0.match(/\d+/)[0]);
       currentDay = { num, exercises: [], abOptionA: [], abOptionB: [] };
       days.push(currentDay);
       return;
     }
 
-    if (!currentDay || !col1) return;
+    if (!currentDay) return;
+
+    const col1 = (row[colMap.name]   || "").trim();  // exercise name
+    const col2 = (row[colMap.pct]    || "").trim();  // % / RPE
+    const col3 = (row[colMap.reps]   || "").trim();  // reps
+    const col4 = (row[colMap.sets]   || "").trim();  // sets
+    const col5 = (row[colMap.weight] || "").trim();  // weight
+    const col6 = (row[colMap.notes]  || "").trim();  // notes
+
+    if (!col1) return;
 
     // "CHOOSE VARIATION..." rows mark an A/B slot in the exercise order
     if (/choose variation/i.test(col1)) {
@@ -161,37 +202,30 @@ function parseSheetDays(rows) {
       return;
     }
 
-    const weight = Number(col5);
-    const hasPct = hasPercent(col2);
+    const weight  = Number(col5);
+    const hasPct  = hasPercent(col2);
     const liftKey = detectLiftKey(col1);
 
-    if (hasPct || (liftKey && weight > 0)) {
-      // Main lift row (has % or is a known lift with weight)
+    // A TRUE main lift: recognised name WITHOUT parenthetical modifier
+    // (e.g. "Squats", "Bench", "Deadlift"). Gets warmup sets.
+    if (liftKey && (hasPct || weight > 0)) {
       currentDay.exercises.push({
         type: "main",
-        name: col1,
-        pct: col2,
-        reps: col3,
-        sets: col4,
-        weight: weight || null,
-        notes: col6,
-        liftKey,
+        name: col1, pct: col2, reps: col3, sets: col4,
+        weight: weight || null, notes: col6, liftKey,
       });
-    } else if (col1 && (col3 || col4)) {
-      // Direct accessory (has reps or sets but no %)
+    } else if (col1 && (hasPct || col3 || col4)) {
+      // Everything else: bench variations, accessories, conditioning.
+      // Show the % and weight as detail text, but no warmup calculator.
       currentDay.exercises.push({
         type: "accessory",
-        name: col1,
-        reps: col3,
-        sets: col4,
-        notes: col6,
+        name: col1, pct: col2, reps: col3, sets: col4,
+        weight: weight || null, notes: col6,
       });
     }
   });
 
   // — RIGHT-SIDE PASS: collect A/B options per day —
-  // The right side uses col 8 for labels ("A", "B", or "DAY N")
-  // and col 9 for the exercise text ("3A) DB RDLs 3x10 RPE 8").
   let rightDay  = null;
   let abSection = null;
 
@@ -199,7 +233,6 @@ function parseSheetDays(rows) {
     const col8 = (row[8] || "").trim();
     const col9 = (row[9] || "").trim();
 
-    // "DAY 1", "DAY 2" etc. on the right side
     if (/^day\s*\d+$/i.test(col8)) {
       const num = parseInt(col8.match(/\d+/)[0]);
       rightDay  = days.find((d) => d.num === num) || null;
@@ -212,9 +245,7 @@ function parseSheetDays(rows) {
     if (col8 === "A") abSection = "A";
     if (col8 === "B") abSection = "B";
 
-    // Exercise lines: "3A) DB or Barbell RDLs 3x10 RPE 8"
     if (col9 && /^\d+[ABab]\)/.test(col9)) {
-      // Strip the numbering prefix ("3A) ") so we get the clean name
       const clean = col9.replace(/^\d+[ABab]\)\s*/, "").trim();
       if (abSection === "A") rightDay.abOptionA.push(clean);
       else if (abSection === "B") rightDay.abOptionB.push(clean);
@@ -456,18 +487,18 @@ async function syncFromSheet() {
     // Parse full day structure for the training view
     state.training.parsedDays = parseSheetDays(rows);
 
-    // Also pull working weights into the lifts[] reference array
-    // (used as fallback when a day doesn't have a weight listed)
-    state.training.lifts.forEach((lift) => {
-      const aliases = LIFT_ALIASES[lift.name] || [lift.name.toLowerCase()];
-      const matches = rows.filter((row) => {
-        const name   = (row[1] || "").toLowerCase();
-        const pct    = row[2] || "";
-        const weight = Number(row[5]);
-        return aliases.some((a) => name.includes(a)) && hasPercent(pct) && weight > 0;
+    // Extract working weights from the parsed days.
+    const liftWeights = {};
+    state.training.parsedDays.forEach((day) => {
+      day.exercises.forEach((ex) => {
+        if (ex.type === "main" && ex.liftKey && ex.weight) {
+          liftWeights[ex.liftKey] = ex.weight; // last occurrence wins
+        }
       });
-      if (matches.length > 0) {
-        lift.workingWeight = Number(matches[matches.length - 1][5]);
+    });
+    state.training.lifts.forEach((lift) => {
+      if (liftWeights[lift.name] !== undefined) {
+        lift.workingWeight = liftWeights[lift.name];
         updated++;
       }
     });
@@ -651,11 +682,19 @@ function renderTraining() {
         </div>`;
 
     } else if (ex.type === "accessory") {
+      const detail = [
+        ex.sets && ex.reps ? `${ex.sets} × ${ex.reps}` : (ex.reps || ex.sets || ""),
+        ex.pct  ? `@ ${ex.pct}` : "",
+        ex.weight ? `· ${ex.weight}${unit}` : "",
+      ].filter(Boolean).join(" ");
+
       html += `
         <div class="day-accessory-row">
-          <div class="day-acc-name">${escapeHtml(ex.name)}</div>
-          <div class="day-acc-detail">${ex.sets ? ex.sets + " × " : ""}${ex.reps || ""}</div>
-          ${ex.notes ? `<div class="day-acc-notes">${escapeHtml(ex.notes)}</div>` : ""}
+          <div class="day-acc-left">
+            <div class="day-acc-name">${escapeHtml(ex.name)}</div>
+            ${ex.notes ? `<div class="day-acc-notes">${escapeHtml(ex.notes)}</div>` : ""}
+          </div>
+          ${detail ? `<div class="day-acc-detail">${detail}</div>` : ""}
         </div>`;
 
     } else if (ex.type === "ab_slot") {
@@ -723,6 +762,7 @@ function renderManualLifts(unit, bar) {
   }).join("");
 }
 
+let _warmupDebounce = null;
 function wireManualLiftInputs() {
   const grid = document.getElementById("training-day-display");
   grid.querySelectorAll(".lift-weight-input").forEach((input) => {
@@ -730,9 +770,10 @@ function wireManualLiftInputs() {
       const idx = Number(e.target.dataset.liftIndex);
       state.training.lifts[idx].workingWeight = e.target.value;
       saveState();
-      renderTraining();
-      const fresh = grid.querySelector(`.lift-weight-input[data-lift-index="${idx}"]`);
-      if (fresh) { fresh.focus(); fresh.setSelectionRange(fresh.value.length, fresh.value.length); }
+      // Debounce: wait until typing stops before re-rendering warmups.
+      // This prevents the keyboard from closing on every keystroke on iOS.
+      clearTimeout(_warmupDebounce);
+      _warmupDebounce = setTimeout(() => renderTraining(), 700);
     });
   });
 }
@@ -749,7 +790,93 @@ function renderTasks() {
   );
 }
 
-// ---------- FACE ID / WEBAUTHN ----------
+// ---------- BANK CSV IMPORT ----------
+// Both Wells Fargo and Capital One let you download transaction history
+// as CSV from their websites. This parser auto-detects which bank's
+// format you're using based on the column headers.
+//
+// Wells Fargo columns: Date, Amount, *, *, Description
+// Capital One columns: Transaction Date, Posted Date, Card No., Description, Category, Debit, Credit
+
+function importBankCSV(file, account) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    const rows = parseCsv(text);
+    if (rows.length < 2) { alert("CSV appears empty."); return; }
+
+    const header = rows[0].map((h) => h.toLowerCase().trim());
+    let imported = 0;
+
+    // — Capital One format detection —
+    const isCapOne = header.some((h) => h.includes("transaction date") || h.includes("card no"));
+    if (isCapOne) {
+      const dateIdx  = header.findIndex((h) => h.includes("transaction date"));
+      const descIdx  = header.findIndex((h) => h.includes("description"));
+      const catIdx   = header.findIndex((h) => h.includes("category"));
+      const debitIdx = header.findIndex((h) => h === "debit");
+      const credIdx  = header.findIndex((h) => h === "credit");
+
+      rows.slice(1).forEach((row) => {
+        const date   = (row[dateIdx] || "").trim();
+        const desc   = (row[descIdx] || "").trim();
+        const cat    = (row[catIdx]  || "").trim();
+        const debit  = parseFloat(row[debitIdx])  || 0;
+        const credit = parseFloat(row[credIdx]) || 0;
+        if (!date || !desc) return;
+
+        const amount = credit > 0 ? credit : -debit; // positive = payment, negative = charge
+        const isoDate = toISODate(date);
+        if (!isoDate) return;
+
+        // Skip duplicates
+        if (!account.transactions.some((t) => t.date === isoDate && t.description === desc && Math.abs(t.amount) === Math.abs(amount))) {
+          account.transactions.unshift({ id: cryptoId(), date: isoDate, description: desc, amount, category: cat });
+          imported++;
+        }
+      });
+    } else {
+      // — Wells Fargo format —
+      // No header row; columns are: Date, Amount, *, *, Description
+      const allRows = rows[0].length >= 5 ? rows : rows.slice(1);
+      allRows.forEach((row) => {
+        const date   = (row[0] || "").trim();
+        const amount = parseFloat(row[1]) || 0;
+        const desc   = (row[4] || row[3] || row[2] || "").trim().replace(/^"|"$/g, "");
+        if (!date || !desc || amount === 0) return;
+
+        const isoDate = toISODate(date);
+        if (!isoDate) return;
+
+        if (!account.transactions.some((t) => t.date === isoDate && t.description === desc && t.amount === amount)) {
+          account.transactions.unshift({ id: cryptoId(), date: isoDate, description: desc, amount, category: "" });
+          imported++;
+        }
+      });
+    }
+
+    // Sort by date descending
+    account.transactions.sort((a, b) => b.date.localeCompare(a.date));
+    saveState();
+    renderFinance();
+
+    const zone = document.getElementById("bank-import-zone");
+    if (zone) {
+      zone.innerHTML = `<span class="import-icon">✓</span><span class="import-label">${imported} transaction(s) imported</span>`;
+      setTimeout(() => renderFinance(), 2000);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Converts MM/DD/YYYY or YYYY-MM-DD to YYYY-MM-DD
+function toISODate(str) {
+  str = str.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`;
+  return null;
+}
 // WebAuthn lets the browser call the device's biometric hardware
 // (Face ID on iPhone, Touch ID on Mac). It works on HTTPS only —
 // so it works on your deployed GitHub Pages site but NOT on a
@@ -988,6 +1115,23 @@ function renderFinance() {
       renderFinance();
     });
   }
+
+  // Bank CSV import — drag-and-drop or file picker
+  const importZone = el.querySelector("#bank-import-zone");
+  const importInput = el.querySelector("#bank-csv-input");
+  if (importZone && importInput && active) {
+    importZone.addEventListener("dragover", (e) => { e.preventDefault(); importZone.classList.add("is-dragging"); });
+    importZone.addEventListener("dragleave", () => importZone.classList.remove("is-dragging"));
+    importZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      importZone.classList.remove("is-dragging");
+      const file = e.dataTransfer.files[0];
+      if (file) importBankCSV(file, active);
+    });
+    importInput.addEventListener("change", () => {
+      if (importInput.files[0]) importBankCSV(importInput.files[0], active);
+    });
+  }
 }
 
 function renderAccountDetail(acc) {
@@ -1038,6 +1182,15 @@ function renderAccountDetail(acc) {
   return `
     <div class="account-detail">
       ${creditMeta}
+
+      <!-- Bank CSV import -->
+      <div class="bank-import-zone" id="bank-import-zone">
+        <span class="import-icon">📥</span>
+        <span class="import-label">Drop your bank's transaction CSV here, or <label for="bank-csv-input" class="import-link">browse</label></span>
+        <input id="bank-csv-input" type="file" accept=".csv" style="display:none;" />
+        <span class="import-hint">Works with Wells Fargo &amp; Capital One CSV exports</span>
+      </div>
+
       <div class="tx-list">${txRows}</div>
       <form id="tx-form" class="tx-add-form">
         <input id="tx-desc"   type="text"   placeholder="Description" required autocomplete="off" />
@@ -1119,6 +1272,84 @@ function showAddAccountModal() {
     modal.remove();
     renderFinance();
   });
+}
+
+// ---------- ICS / APPLE CALENDAR EXPORT ----------
+// Generates a standard .ics file for a single event. When opened on
+// iPhone, iOS prompts to add it to Apple Calendar automatically.
+
+function generateICS(ev) {
+  const [y, m, d] = ev.date.split("-");
+  let dtStart, dtEnd, allDay;
+
+  if (ev.time) {
+    const [h, min] = ev.time.split(":");
+    dtStart = `${y}${m}${d}T${h}${min}00`;
+    const endH = String((parseInt(h) + 1) % 24).padStart(2, "0");
+    dtEnd   = `${y}${m}${d}T${endH}${min}00`;
+    allDay  = false;
+  } else {
+    dtStart = `${y}${m}${d}`;
+    dtEnd   = `${y}${m}${d}`;
+    allDay  = true;
+  }
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Loadout//EN",
+    "BEGIN:VEVENT",
+    allDay ? `DTSTART;VALUE=DATE:${dtStart}` : `DTSTART:${dtStart}`,
+    allDay ? `DTEND;VALUE=DATE:${dtEnd}`     : `DTEND:${dtEnd}`,
+    `SUMMARY:${ev.title}`,
+    ev.type === "deadline" ? "CATEGORIES:DEADLINE" : "CATEGORIES:EVENT",
+    `UID:loadout-${ev.id}@loadout`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+
+  return lines.join("\r\n");
+}
+
+function downloadICS(ev) {
+  const blob = new Blob([generateICS(ev)], { type: "text/calendar;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement("a"), {
+    href: url,
+    download: `${ev.title.replace(/[^a-zA-Z0-9]/g, "_")}.ics`,
+  });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadAllICS() {
+  if (!state.events.length) return;
+  const inner = state.events.map((ev) => {
+    const [y, m, d] = ev.date.split("-");
+    let dtStart, dtEnd, allDay;
+    if (ev.time) {
+      const [h, min] = ev.time.split(":");
+      dtStart = `${y}${m}${d}T${h}${min}00`;
+      const endH = String((parseInt(h) + 1) % 24).padStart(2, "0");
+      dtEnd = `${y}${m}${d}T${endH}${min}00`;
+      allDay = false;
+    } else { dtStart = dtEnd = `${y}${m}${d}`; allDay = true; }
+    return [
+      "BEGIN:VEVENT",
+      allDay ? `DTSTART;VALUE=DATE:${dtStart}` : `DTSTART:${dtStart}`,
+      allDay ? `DTEND;VALUE=DATE:${dtEnd}`     : `DTEND:${dtEnd}`,
+      `SUMMARY:${ev.title}`,
+      `UID:loadout-${ev.id}@loadout`,
+      "END:VEVENT",
+    ].join("\r\n");
+  }).join("\r\n");
+
+  const ics  = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Loadout//EN\r\n${inner}\r\nEND:VCALENDAR`;
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement("a"), { href: url, download: "loadout-events.ics" });
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ---------- CALENDAR ----------
@@ -1209,6 +1440,7 @@ function renderWeekView(anchor) {
                     <div class="cal-event-chip ${e.type}" data-id="${e.id}">
                       ${e.time ? `<span class="chip-time">${fmtTime(e.time)}</span>` : ""}
                       <span class="chip-title">${escapeHtml(e.title)}</span>
+                      <button class="chip-ics" data-id="${e.id}" title="Add to Apple Calendar">⊕</button>
                       <button class="chip-del" data-id="${e.id}">×</button>
                     </div>`).join("")
                 : ""}
@@ -1221,6 +1453,13 @@ function renderWeekView(anchor) {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       deleteEvent(btn.dataset.id);
+    });
+  });
+  grid.querySelectorAll(".chip-ics").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const ev = state.events.find((ev) => ev.id === btn.dataset.id);
+      if (ev) downloadICS(ev);
     });
   });
 }
@@ -1375,8 +1614,8 @@ document.querySelector("main").addEventListener("click", (e) => {
 });
 
 // Calendar nav + view toggle + add-event form
-document.getElementById("cal-prev").addEventListener("click", () => calNav(-1));
-document.getElementById("cal-next").addEventListener("click", () => calNav(1));
+document.getElementById("cal-export-all-btn").addEventListener("click", downloadAllICS);
+document.getElementById("cal-prev").addEventListener("click", () => calNav(-1));document.getElementById("cal-next").addEventListener("click", () => calNav(1));
 document.getElementById("cal-week-btn").addEventListener("click", () => {
   state.calView = "week"; saveState(); renderCal();
 });

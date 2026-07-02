@@ -1,4 +1,4 @@
-const CACHE_NAME = "loadout-v9";
+const CACHE_NAME = "loadout-v10";
 const ASSETS = [
   "./",
   "./index.html",
