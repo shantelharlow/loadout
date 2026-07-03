@@ -29,7 +29,8 @@ function loadState() {
       sheetUrl: "",
       sheetTabs: [],
       activeGid: "",
-      tabsDiscovered: false,  // true only when tab IDs were genuinely found
+      tabsDiscovered: false,
+      weekData: {},      // { gid: parsedDays[] } — one entry per synced week
       parsedDays: [],   // parsed from sheet: [{num, exercises, abOptionA, abOptionB}]
       activeDay: 1,     // which day tab is selected
       abChoices: {},    // { "1": "A", "2": "B", ... } user's A/B pick per day
@@ -83,6 +84,11 @@ if (state.training.lifts.some((l) => l.value !== undefined)) {
 if (!state.training.parsedDays) state.training.parsedDays = [];
 if (!state.training.activeDay)  state.training.activeDay  = 1;
 if (!state.training.abChoices)  state.training.abChoices  = {};
+if (!state.training.weekData)   state.training.weekData   = {};
+// Migrate: if old parsedDays has data, move it into weekData under "default"
+if (state.training.parsedDays.length && !Object.keys(state.training.weekData).length) {
+  state.training.weekData["default"] = state.training.parsedDays;
+}
 if (!state.events)    state.events    = [];
 if (!state.calView)   state.calView   = "week";
 if (!state.calAnchor) state.calAnchor = "";
@@ -256,40 +262,72 @@ function parseSheetDays(rows) {
 }
 
 // ---------- WARMUP CALCULATOR ----------
-// Standard percentage-based ramp toward a working weight.
-// Reps taper down as the weight climbs, which is the usual pattern
-// lifters use: build up CNS/joint readiness without burning gas
-// before the working set.
-const WARMUP_SCHEME = [
-  { pct: 0.4, reps: 5 },
-  { pct: 0.55, reps: 3 },
-  { pct: 0.7, reps: 2 },
-  { pct: 0.85, reps: 1 },
-];
+// The warmup scheme adapts to the working set rep range.
+// High-rep work (8+) needs fewer, lighter warmups — you're building
+// blood flow, not grinding near-max singles.
+// Low-rep strength work (1-4) needs more steps and gets close to
+// the working weight before the set.
 
-// Rounds to the nearest loadable increment (2.5kg / 5lb per side
-// jumps = 5kg / 10lb total), so every number is one you can actually
-// put on the bar with standard plates.
+const WARMUP_SCHEMES = {
+  // 1-3 reps: heavy strength — 6-step ramp, aggressive taper
+  heavy: [
+    { pct: 0.40, reps: 5 },
+    { pct: 0.55, reps: 3 },
+    { pct: 0.65, reps: 2 },
+    { pct: 0.75, reps: 1 },
+    { pct: 0.85, reps: 1 },
+    { pct: 0.92, reps: 1 },
+  ],
+  // 4-6 reps: strength / strength-hypertrophy — standard 4-step
+  strength: [
+    { pct: 0.40, reps: 5 },
+    { pct: 0.55, reps: 3 },
+    { pct: 0.70, reps: 2 },
+    { pct: 0.85, reps: 1 },
+  ],
+  // 7-10 reps: hypertrophy — 3 steps, reps stay higher
+  hypertrophy: [
+    { pct: 0.40, reps: 10 },
+    { pct: 0.60, reps: 6 },
+    { pct: 0.75, reps: 3 },
+  ],
+  // 11+ reps: high rep / conditioning — 2 light steps
+  highRep: [
+    { pct: 0.40, reps: 12 },
+    { pct: 0.65, reps: 8 },
+  ],
+};
+
+function pickScheme(reps) {
+  if (reps <= 3)  return WARMUP_SCHEMES.heavy;
+  if (reps <= 6)  return WARMUP_SCHEMES.strength;
+  if (reps <= 10) return WARMUP_SCHEMES.hypertrophy;
+  return WARMUP_SCHEMES.highRep;
+}
+
 function roundToIncrement(weight, unit) {
   const increment = unit === "kg" ? 5 : 10;
   return Math.round(weight / increment) * increment;
 }
 
-function generateWarmups(workingWeight, unit, barWeight) {
-  const w = Number(workingWeight);
+function generateWarmups(workingWeight, unit, barWeight, workingReps) {
+  const w    = Number(workingWeight);
+  const reps = Number(workingReps) || 5;
   if (!w || w <= 0) return [];
 
-  const sets = [{ label: "Bar", weight: barWeight, reps: 8 }];
+  const scheme   = pickScheme(reps);
+  const barReps  = reps <= 6 ? 5 : 8;
+  const sets     = [{ label: "Bar", weight: barWeight, reps: barReps }];
 
-  WARMUP_SCHEME.forEach((step) => {
+  scheme.forEach((step) => {
     let weight = roundToIncrement(w * step.pct, unit);
-    weight = Math.max(weight, barWeight); // never below an empty bar
+    weight = Math.max(weight, barWeight);
     if (weight < w) {
       sets.push({ label: `${Math.round(step.pct * 100)}%`, weight, reps: step.reps });
     }
   });
 
-  sets.push({ label: "Work set", weight: w, reps: null });
+  sets.push({ label: `Work set`, weight: w, reps });
   return sets;
 }
 
@@ -436,26 +474,27 @@ function showManualWeekFallback(url) {
 
 function renderTabSelector() {
   const tabsRow = document.getElementById("sheet-tabs-row");
-  const { sheetTabs, activeGid } = state.training;
+  const { sheetTabs, activeGid, weekData, tabsDiscovered } = state.training;
 
   if (!sheetTabs.length) { tabsRow.innerHTML = ""; return; }
 
   tabsRow.innerHTML = sheetTabs
-    .map(
-      (t) => `
-      <button
-        class="week-tab-btn ${t.gid === activeGid ? "is-active" : ""}"
-        data-gid="${t.gid}"
-        type="button"
-      >${t.name}</button>`
-    )
+    .map((t) => {
+      const gidKey  = tabsDiscovered ? t.gid : "default";
+      const hasSynced = !!weekData[gidKey];
+      return `
+        <button
+          class="week-tab-btn ${t.gid === activeGid ? "is-active" : ""}"
+          data-gid="${t.gid}" type="button"
+        >${t.name}${hasSynced ? ' <span class="tab-synced-dot">●</span>' : ""}</button>`;
+    })
     .join("");
 
   tabsRow.querySelectorAll(".week-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.training.activeGid = btn.dataset.gid;
       saveState();
-      renderTabSelector();
+      renderTraining();
     });
   });
 }
@@ -485,7 +524,12 @@ async function syncFromSheet() {
     let updated = 0;
 
     // Parse full day structure for the training view
+    // Store per week-tab gid so switching tabs shows different data
+    const gidKey = (state.training.tabsDiscovered && state.training.activeGid)
+      ? state.training.activeGid
+      : "default";
     state.training.parsedDays = parseSheetDays(rows);
+    state.training.weekData[gidKey] = state.training.parsedDays;
 
     // Extract working weights from the parsed days.
     const liftWeights = {};
@@ -623,7 +667,10 @@ function renderTraining() {
     urlInput.value = state.training.sheetUrl || "";
   }
 
-  const days = state.training.parsedDays;
+  const gidKey = (state.training.tabsDiscovered && state.training.activeGid)
+    ? state.training.activeGid
+    : "default";
+  const days = state.training.weekData[gidKey] || [];
   const dayContainer = document.getElementById("training-day-display");
 
   // — No sheet synced yet: show manual lift entry —
@@ -661,7 +708,8 @@ function renderTraining() {
         ? state.training.lifts.find((l) => l.name === ex.liftKey)
         : null;
       const warmupWeight = ex.weight || (refLift ? Number(refLift.workingWeight) : 0);
-      const warmups = warmupWeight ? generateWarmups(warmupWeight, unit, bar) : [];
+      const warmupReps   = Number(ex.reps) || (refLift ? Number(refLift.workingReps) : 5);
+      const warmups = warmupWeight ? generateWarmups(warmupWeight, unit, bar, warmupReps) : [];
 
       html += `
         <div class="day-lift-card">
@@ -740,7 +788,7 @@ function renderTraining() {
 
 function renderManualLifts(unit, bar) {
   return state.training.lifts.map((l, i) => {
-    const warmups = generateWarmups(l.workingWeight, unit, bar);
+    const warmups = generateWarmups(l.workingWeight, unit, bar, l.workingReps || 5);
     const warmupHtml = warmups.length
       ? warmups.map((s) => `
           <div class="warmup-row${s.label === "Work set" ? " is-work" : ""}">
@@ -753,16 +801,18 @@ function renderManualLifts(unit, bar) {
       <div class="lift-card">
         <div class="lift-name">${l.name}</div>
         <div class="lift-input-row">
-          <blur type="text" inputmode="decimal" class="lift-weight-input"
-                 data-lift-index="${i}" placeholder="e.g. 225" step="any" value="${l.workingWeight}" />
+          <input type="text" inputmode="decimal" class="lift-weight-input"
+                 data-lift-index="${i}" placeholder="e.g. 225" value="${l.workingWeight}" />
           <span class="unit-tag">${unit}</span>
+          <input type="text" inputmode="numeric" class="lift-reps-input"
+                 data-lift-index="${i}" placeholder="reps" value="${l.workingReps || ""}" />
+          <span class="unit-tag">reps</span>
         </div>
         <div class="warmup-list">${warmupHtml}</div>
       </div>`;
   }).join("");
 }
 
-let _warmupDebounce = null;
 function wireManualLiftInputs() {
   const grid = document.getElementById("training-day-display");
   grid.querySelectorAll(".lift-weight-input").forEach((input) => {
@@ -770,11 +820,16 @@ function wireManualLiftInputs() {
       const idx = Number(e.target.dataset.liftIndex);
       state.training.lifts[idx].workingWeight = e.target.value;
       saveState();
-      // Debounce: wait until typing stops before re-rendering warmups.
-      // This prevents the keyboard from closing on every keystroke on iOS.
-      clearTimeout(_warmupDebounce);
-      _warmupDebounce = setTimeout(() => renderTraining(), 700);
     });
+    input.addEventListener("blur", () => renderTraining());
+  });
+  grid.querySelectorAll(".lift-reps-input").forEach((input) => {
+    input.addEventListener("input", (e) => {
+      const idx = Number(e.target.dataset.liftIndex);
+      state.training.lifts[idx].workingReps = Number(e.target.value) || 5;
+      saveState();
+    });
+    input.addEventListener("blur", () => renderTraining());
   });
 }
 

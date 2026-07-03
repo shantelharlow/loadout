@@ -933,3 +933,25 @@ input[type="date"].credit-inline-input {
 
 /* ── Accessory row layout fix ───────────────────────── */
 .day-acc-left { flex: 1; min-width: 0; }
+
+/* ── Synced dot on week tabs ────────────────────────── */
+.tab-synced-dot {
+  font-size: 7px;
+  vertical-align: middle;
+  margin-left: 2px;
+  color: var(--plate-finance);
+}
+.week-tab-btn.is-active .tab-synced-dot { color: #161514; }
+
+/* ── Reps input beside weight input ─────────────────── */
+.lift-reps-input {
+  width: 52px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 6px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-align: center;
+}
