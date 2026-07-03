@@ -176,16 +176,16 @@ function parseSheetDays(rows) {
 
   // — LEFT-SIDE PASS: build day blocks with exercises —
   rows.forEach((row) => {
-    const col0 = (row[0] || "").trim();
+    // Check first 3 cells for "Day N" — handles variable CSV column layouts
+    // where "Day 1" might land in col 0, 1, or 2 depending on the sheet structure.
+    const dayColIdx = [0, 1, 2].findIndex((i) => /^day\s*\d+/i.test((row[i] || "").trim()));
+    const dayCell   = dayColIdx >= 0 ? (row[dayColIdx] || "").trim() : null;
 
-    // "Day 1", "Day 2", etc. — start a new day block.
-    // This row also doubles as the column header row in the sheet,
-    // so we detect column positions from it.
-    if (/^day\s*\d+/i.test(col0)) {
+    if (dayCell) {
       const detected = detectColMap(row);
       if (detected) colMap = detected;
 
-      const num = parseInt(col0.match(/\d+/)[0]);
+      const num = parseInt(dayCell.match(/\d+/)[0]);
       currentDay = { num, exercises: [], abOptionA: [], abOptionB: [] };
       days.push(currentDay);
       return;
@@ -232,29 +232,46 @@ function parseSheetDays(rows) {
   });
 
   // — RIGHT-SIDE PASS: collect A/B options per day —
+  // From the spreadsheet: DAY headers and A/B labels are in col J (index 9),
+  // exercise text is also in col J (sometimes K for notes).
+  // We scan all rows for these patterns regardless of which day block we're in.
   let rightDay  = null;
   let abSection = null;
 
   rows.forEach((row) => {
-    const col8 = (row[8] || "").trim();
-    const col9 = (row[9] || "").trim();
+    // Scan cols 7-11 for DAY headers and A/B labels
+    for (let ci = 7; ci <= 11; ci++) {
+      const val = (row[ci] || "").trim();
+      if (!val) continue;
 
-    if (/^day\s*\d+$/i.test(col8)) {
-      const num = parseInt(col8.match(/\d+/)[0]);
-      rightDay  = days.find((d) => d.num === num) || null;
-      abSection = null;
-      return;
-    }
+      // DAY header on right side: "DAY 1", "DAY 2", etc.
+      if (/^day\s*\d+$/i.test(val)) {
+        const num = parseInt(val.match(/\d+/)[0]);
+        rightDay  = days.find((d) => d.num === num) || null;
+        abSection = null;
+        break;
+      }
 
-    if (!rightDay) return;
+      // A or B label
+      if (val === "A" || val === "B") {
+        abSection = val;
+        // Exercise might be in the next column
+        const nextVal = (row[ci + 1] || "").trim();
+        if (nextVal && /^\d+[ABab]\)/.test(nextVal) && rightDay) {
+          const clean = nextVal.replace(/^\d+[ABab]\)\s*/, "").trim();
+          if (abSection === "A") rightDay.abOptionA.push(clean);
+          else rightDay.abOptionB.push(clean);
+        }
+        break;
+      }
 
-    if (col8 === "A") abSection = "A";
-    if (col8 === "B") abSection = "B";
-
-    if (col9 && /^\d+[ABab]\)/.test(col9)) {
-      const clean = col9.replace(/^\d+[ABab]\)\s*/, "").trim();
-      if (abSection === "A") rightDay.abOptionA.push(clean);
-      else if (abSection === "B") rightDay.abOptionB.push(clean);
+      // Exercise line: "3A) DB or Barbell RDLs 3x10 RPE 8"
+      if (/^\d+[ABab]\)/.test(val) && rightDay && abSection) {
+        const clean = val.replace(/^\d+[ABab]\)\s*/, "").trim();
+        if (abSection === "A") rightDay.abOptionA.push(clean);
+        else if (abSection === "B") rightDay.abOptionB.push(clean);
+        break;
+      }
     }
   });
 
@@ -349,7 +366,9 @@ const LIFT_ALIASES = {
 };
 
 function parseCsv(text) {
-  return text.trim().split("\n").map((line) => {
+  // Strip UTF-8 BOM that Google Sheets sometimes adds, and normalise line endings
+  const clean = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return clean.trim().split("\n").map((line) => {
     const cells = [];
     let inQuote = false, cell = "";
     for (const ch of line) {
@@ -551,10 +570,13 @@ async function syncFromSheet() {
     render();
 
     const tabName = state.training.sheetTabs.find((t) => t.gid === activeGid)?.name || "sheet";
-    statusEl.textContent =
-      updated > 0
-        ? `Synced ${tabName} — updated ${updated} lift(s).`
-        : `Connected to ${tabName}, but no Squat/Bench/Deadlift rows found with weights.`;
+    const daysSummary = state.training.parsedDays.length
+      ? state.training.parsedDays.map((d) => `Day ${d.num}: ${d.exercises.length} exercises`).join(" · ")
+      : "No days found";
+
+    statusEl.textContent = updated > 0
+      ? `Synced ${tabName} — ${updated} lift weight(s) loaded. ${daysSummary}`
+      : `Connected to ${tabName} but no main lift weights found. ${daysSummary}`;
     statusEl.classList.add(updated > 0 ? "is-ok" : "is-error");
   } catch (err) {
     const isNetworkBlock = err.message.includes("Failed to fetch") || err.message.includes("NetworkError");
