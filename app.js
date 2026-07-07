@@ -539,7 +539,16 @@ async function syncFromSheet() {
     const res = await fetch(csvUrl);
     if (!res.ok) throw new Error(`Sheet returned ${res.status}`);
     const text = await res.text();
+
+    // DEBUG: show first 4 rows raw so we can diagnose parsing issues.
+    // This will be removed once the parser is confirmed working.
     const rows = parseCsv(text);
+    const debugPreview = rows.slice(0, 4).map((r, i) =>
+      `Row${i}: ${r.slice(0, 6).map((c) => `"${c}"`).join("|")}`
+    ).join("  ");
+    statusEl.textContent = `CSV received — ${debugPreview}`;
+    statusEl.className = "sheet-sync-status";
+    await new Promise((r) => setTimeout(r, 0)); // flush to DOM
     let updated = 0;
 
     // Parse full day structure for the training view
