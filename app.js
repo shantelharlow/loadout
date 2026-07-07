@@ -539,25 +539,28 @@ async function syncFromSheet() {
     const res = await fetch(csvUrl);
     if (!res.ok) throw new Error(`Sheet returned ${res.status}`);
     const text = await res.text();
-
-    // DEBUG: show first 4 rows raw so we can diagnose parsing issues.
-    // This will be removed once the parser is confirmed working.
     const rows = parseCsv(text);
-    const debugPreview = rows.slice(0, 4).map((r, i) =>
-      `Row${i}: ${r.slice(0, 6).map((c) => `"${c}"`).join("|")}`
-    ).join("  ");
-    statusEl.textContent = `CSV received — ${debugPreview}`;
-    statusEl.className = "sheet-sync-status";
-    await new Promise((r) => setTimeout(r, 0)); // flush to DOM
-    let updated = 0;
 
-    // Parse full day structure for the training view
-    // Store per week-tab gid so switching tabs shows different data
+    // Parse days
     const gidKey = (state.training.tabsDiscovered && state.training.activeGid)
       ? state.training.activeGid
       : "default";
     state.training.parsedDays = parseSheetDays(rows);
     state.training.weekData[gidKey] = state.training.parsedDays;
+
+    // If parsing produced nothing, show the raw first rows so we can diagnose
+    if (state.training.parsedDays.length === 0) {
+      const debugPreview = rows.slice(0, 5).map((r, i) =>
+        `[Row ${i}] ${r.slice(0, 7).map((c) => JSON.stringify(c)).join(" | ")}`
+      ).join("\n");
+      statusEl.textContent = `No days found. Raw CSV:\n${debugPreview}`;
+      statusEl.className = "sheet-sync-status is-error";
+      statusEl.style.whiteSpace = "pre";
+      saveState();
+      render();
+      return;
+    }
+    let updated = 0;
 
     // Extract working weights from the parsed days.
     const liftWeights = {};
